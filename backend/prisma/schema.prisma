@@ -1,0 +1,79 @@
+// Prisma schema — milestone 1 baseline. Mở rộng trong các milestone sau.
+// Đọc docs/architecture.md §2.2 và docs/backend-structure.md.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  role         String   @default("user") // 'admin' | 'user' | 'system'
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  sites        Site[]
+
+  @@map("users")
+}
+
+model Template {
+  id        Int      @id @default(autoincrement())
+  slug      String   @unique
+  name      String
+  version   String
+  manifest  Json
+  localPath String   @map("local_path")
+  status    String   @default("building") // 'building' | 'ready' | 'failed'
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  sites     Site[]
+
+  @@index([status])
+  @@map("templates")
+}
+
+model Site {
+  id              Int       @id @default(autoincrement())
+  domain          String    @unique
+  status          String    @default("queued") // queued|provisioning|active|failed|ssl_failed|deleted
+  templateId      Int       @map("template_id")
+  ownerId         Int       @map("owner_id")
+  dbName          String?   @map("db_name")
+  dbUser          String?   @map("db_user")
+  dbPasswordEnc   String?   @map("db_password_enc") @db.Text
+  pluginSecretEnc String?   @map("plugin_secret_enc") @db.Text
+  provisionState  Json      @default("{}") @map("provision_state")
+  provisionedAt   DateTime? @map("provisioned_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  owner    User     @relation(fields: [ownerId], references: [id])
+  template Template @relation(fields: [templateId], references: [id])
+
+  @@index([status])
+  @@index([ownerId])
+  @@map("sites")
+}
+
+model Job {
+  id        Int      @id @default(autoincrement())
+  jobId     String   @unique @map("job_id")
+  queue     String
+  type      String
+  status    String   @default("pending") // pending|active|completed|failed
+  payload   Json
+  result    Json?
+  error     String?  @db.Text
+  attempts  Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([queue, status])
+  @@map("jobs")
+}

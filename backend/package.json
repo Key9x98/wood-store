@@ -1,0 +1,78 @@
+{
+  "name": "cms-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Multi-tenant auto website builder — backend (Express + TypeScript)",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "worker:provision": "tsx src/workers/provision.worker.ts",
+    "worker:dns": "echo 'worker:dns not implemented yet (milestone 4)' && exit 1",
+    "worker:ssl": "echo 'worker:ssl not implemented yet (milestone 4)' && exit 1",
+    "worker:deploy": "echo 'worker:deploy not implemented yet (milestone 5)' && exit 1",
+    "worker:rollback": "tsx src/workers/rollback.worker.ts",
+    "worker:ai": "echo 'worker:ai not implemented yet' && exit 1",
+    "worker:template-import": "tsx src/workers/template-import.worker.ts",
+    "wp-db:create": "tsx src/scripts/create-wp-db.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src --max-warnings 0",
+    "typecheck": "tsc --noEmit",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:deploy": "prisma migrate deploy"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.22.0",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "bcryptjs": "^3.0.3",
+    "bullmq": "^5.34.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^8.5.1",
+    "helmet": "^8.0.0",
+    "ioredis": "^5.4.2",
+    "jsonwebtoken": "^9.0.3",
+    "mysql2": "^3.22.3",
+    "pino": "^9.5.0",
+    "prom-client": "^15.1.3",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^3.0.0",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^22.10.5",
+    "eslint": "^9.18.0",
+    "pino-pretty": "^13.0.0",
+    "prettier": "^3.4.2",
+    "prisma": "^5.22.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.20.0",
+    "vitest": "^2.1.8"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "@prisma/engines",
+      "esbuild",
+      "prisma",
+      "msgpackr-extract"
+    ],
+    "allowBuilds": {
+      "@prisma/client": true,
+      "@prisma/engines": true,
+      "esbuild": true,
+      "prisma": true,
+      "msgpackr-extract": true
+    }
+  }
+}
