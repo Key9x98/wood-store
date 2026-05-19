@@ -2,6 +2,8 @@ import { Registry, collectDefaultMetrics, Gauge, Counter, Histogram } from 'prom
 import { provisionQueue } from '../queues/provision.queue';
 import { templateImportQueue } from '../queues/template-import.queue';
 import { rollbackQueue } from '../queues/rollback.queue';
+import { contentSyncQueue } from '../queues/content-sync.queue';
+import { deployQueue } from '../queues/deploy.queue';
 import { redis } from './redis';
 
 export const registry = new Registry();
@@ -35,6 +37,20 @@ export const provisionDurationSeconds = new Histogram({
   registers: [registry],
 });
 
+export const contentSyncCounter = new Counter({
+  name: 'cms_content_sync_total',
+  help: 'Content-sync job outcomes. Increment in worker on success / failure.',
+  labelNames: ['result'], // 'success' | 'failed'
+  registers: [registry],
+});
+
+export const deployCounter = new Counter({
+  name: 'cms_deploy_total',
+  help: 'Deploy job outcomes. Increment in worker on success / failure.',
+  labelNames: ['result'], // 'success' | 'failed'
+  registers: [registry],
+});
+
 const QUEUE_STATES = ['waiting', 'active', 'completed', 'failed', 'delayed'] as const;
 
 interface QueueLike {
@@ -45,6 +61,8 @@ const QUEUES: Array<{ name: string; q: QueueLike }> = [
   { name: 'provision', q: provisionQueue as unknown as QueueLike },
   { name: 'template-import', q: templateImportQueue as unknown as QueueLike },
   { name: 'rollback', q: rollbackQueue as unknown as QueueLike },
+  { name: 'content-sync', q: contentSyncQueue as unknown as QueueLike },
+  { name: 'deploy', q: deployQueue as unknown as QueueLike },
 ];
 
 const QUEUE_LOOKUP_TIMEOUT_MS = 500;

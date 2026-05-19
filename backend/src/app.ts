@@ -11,6 +11,8 @@ import { renderMetrics } from './lib/metrics';
 import { authRoutes } from './modules/auth/auth.routes';
 import { usersRoutes } from './modules/users/users.routes';
 import { sitesRoutes } from './modules/sites/sites.routes';
+import { contentRoutes } from './modules/content/content.routes';
+import { deployRoutes } from './modules/deploy/deploy.routes';
 import { templatesRoutes } from './modules/templates/templates.routes';
 
 export function createApp(): Express {
@@ -59,6 +61,8 @@ export function createApp(): Express {
   app.use('/api/auth', authRoutes);
   app.use('/api/users', usersRoutes);
   app.use('/api/sites', sitesRoutes);
+  app.use('/api/sites', contentRoutes); // /api/sites/:siteId/products...
+  app.use('/api/sites', deployRoutes); // /api/sites/:siteId/deploy-theme
   app.use('/api/templates', templatesRoutes);
 
   app.use(errorMiddleware);

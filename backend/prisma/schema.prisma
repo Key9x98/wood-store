@@ -56,9 +56,64 @@ model Site {
   owner    User     @relation(fields: [ownerId], references: [id])
   template Template @relation(fields: [templateId], references: [id])
 
+  products SiteProduct[]
+  media    SiteMedia[]
+
   @@index([status])
   @@index([ownerId])
   @@map("sites")
+}
+
+// Canonical product content. cms_core is the source of truth; the WordPress DB
+// is a re-derivable projection (docs/site-management.md §3). Furniture-specific
+// fields live in `attributes` JSON so the table stays template-agnostic.
+model SiteProduct {
+  id               Int       @id @default(autoincrement())
+  siteId           Int       @map("site_id")
+  slug             String
+  name             String
+  shortDescription String?   @map("short_description") @db.Text
+  description      String    @db.Text
+  regularPrice     Int       @map("regular_price") // VND, integer
+  salePrice        Int?      @map("sale_price")
+  salePercent      Int       @default(0) @map("sale_percent") // derived, computed in service
+  videoUrl         String?   @map("video_url") @db.Text
+  featured         Boolean   @default(false)
+  attributes       Json      @default("{}") // { wood, finish, style, color, dimensions, weightKg, origin, ... }
+  categories       Json      @default("[]") // string[] of product_cat slugs
+  images           Json      @default("[]") // string[] of source image URLs (featured = [0])
+  status           String    @default("active") // 'active' | 'archived'
+  wpPostId         Int?      @map("wp_post_id") // projection mapping, set after sync
+  syncStatus       String    @default("pending") @map("sync_status") // pending|syncing|synced|failed
+  syncError        String?   @map("sync_error") @db.Text
+  syncedAt         DateTime? @map("synced_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  site Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@unique([siteId, slug])
+  @@index([siteId, syncStatus])
+  @@map("site_products")
+}
+
+// Media dedup: maps a source image URL to its WordPress attachment so re-syncs
+// never re-upload the same image. Keyed by sha256(sourceUrl) — `urlHash` —
+// because MySQL cannot put a UNIQUE index on a TEXT column directly.
+model SiteMedia {
+  id             Int      @id @default(autoincrement())
+  siteId         Int      @map("site_id")
+  sourceUrl      String    @map("source_url") @db.Text
+  urlHash        String    @map("url_hash") @db.Char(64)
+  wpAttachmentId Int?     @map("wp_attachment_id")
+  wpUrl          String?  @map("wp_url") @db.Text
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  site Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@unique([siteId, urlHash])
+  @@map("site_media")
 }
 
 model Job {
