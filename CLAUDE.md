@@ -21,6 +21,7 @@ File định nghĩa yêu cầu gốc: `project.md`. Khi có mâu thuẫn giữa 
 | Khi làm | Đọc file |
 |---|---|
 | Hiểu tổng thể kiến trúc | `docs/architecture.md` |
+| Backend quản lý site thế nào (nội dung, đổi template) | `docs/site-management.md` |
 | Provisioning 1 website mới | `docs/provisioning-flow.md` |
 | Làm việc với template | `docs/template-system.md` |
 | Code backend Express | `docs/backend-structure.md` |
@@ -42,6 +43,8 @@ File định nghĩa yêu cầu gốc: `project.md`. Khi có mâu thuẫn giữa 
 | `create-queue-worker` | Viết BullMQ worker mới (idempotent + retry) |
 | `wp-plugin-feature` | Thêm feature vào `ai-builder-plugin` |
 | `furniture-template` | Sinh hoặc cập nhật template đồ gỗ (tủ/bàn/ghế/ban thờ) |
+| `sync-site-content` | Quản lý/đồng bộ nội dung site (sản phẩm, trang) `cms_core` → WP |
+| `change-site-template` | Đổi template cho 1 site đã provision |
 
 Skills nằm trong `.claude/skills/<name>/SKILL.md`.
 
@@ -52,7 +55,9 @@ Skills nằm trong `.claude/skills/<name>/SKILL.md`.
 ### 4.1. Express là source of truth
 - KHÔNG dùng WordPress làm CMS chính.
 - Mọi nghiệp vụ (user, billing, site, template, job) phải nằm trong Express + MySQL chính.
+- **Nội dung site (sản phẩm, trang, media, settings) cũng canonical trong `cms_core`** — DB WordPress chỉ là bản chiếu tái tạo được. Xem `docs/site-management.md`.
 - WordPress chỉ render và nhận dữ liệu push từ Express qua REST API của plugin.
+- Express KHÔNG kết nối thẳng vào DB `wp_<domain>` để ghi nội dung — luôn qua `ai-builder-plugin`.
 
 ### 4.2. Mỗi site = 1 database WordPress riêng
 - Không bao giờ share `wp_*` table giữa các site.

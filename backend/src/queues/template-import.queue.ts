@@ -1,11 +1,11 @@
 import { Queue } from 'bullmq';
 import { redis } from '../lib/redis';
-import type { ImportSource } from '../modules/templates/templates.schema';
 
 export interface TemplateImportJobPayload {
   templateId: number;
   slug: string;
-  source: ImportSource;
+  /** Path to the uploaded .zip on disk (written by TemplateService.startImport). */
+  zipPath: string;
 }
 
 export interface ITemplateImportQueue {

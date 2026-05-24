@@ -12,7 +12,7 @@ const worker = new Worker<TemplateImportJobPayload>(
       templateId: job.data.templateId,
       slug: job.data.slug,
     });
-    log.info({ source: job.data.source.type }, 'import start');
+    log.info('import start');
 
     const r = await templateImportService.run(job.data);
     if (!r.ok) {

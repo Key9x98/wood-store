@@ -193,12 +193,17 @@ Express có endpoint admin `POST /api/sites/:id/products/bulk-import` nhận CSV
 ]
 ```
 
-Backend:
-1. Validate Zod.
-2. Tải ảnh về buffer → POST `/media/upload` (plugin) → nhận attachment ID.
-3. POST `/content/products` với meta đầy đủ.
-4. Compute `sale_percent` rồi push meta.
-5. Idempotent theo slug.
+Backend (mô hình "cms_core là kho gốc" — xem `site-management.md`):
+1. Validate Zod từng dòng.
+2. Compute `sale_percent` rồi **ghi `cms_core.site_products`** (`sync_status='pending'`).
+   Đây là bước "thêm sản phẩm" — dữ liệu gốc nằm ở đây, KHÔNG ở WordPress.
+3. Enqueue `queue:content-sync { siteId, op:'full-resync' }` (hoặc per-product).
+4. `ContentSyncWorker` mới gọi plugin: tải ảnh → `POST /media/upload` → nhận
+   attachment ID → `POST /content/products` với meta đầy đủ.
+5. Lưu `wp_post_id` trả về vào `site_products`, set `sync_status='synced'`.
+6. Idempotent theo slug (cả phía worker lẫn phía plugin upsert).
+
+HTTP handler trả 200 ngay sau bước 3 — không chờ WordPress.
 
 ---
 

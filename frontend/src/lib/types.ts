@@ -37,6 +37,30 @@ export interface Template {
   updatedAt: string;
 }
 
+export interface SiteProduct {
+  id: number;
+  siteId: number;
+  slug: string;
+  name: string;
+  shortDescription: string | null;
+  description: string;
+  regularPrice: number;
+  salePrice: number | null;
+  salePercent: number;
+  videoUrl: string | null;
+  featured: boolean;
+  attributes: Record<string, unknown>;
+  categories: string[];
+  images: string[];
+  status: 'active' | 'archived';
+  wpPostId: number | null;
+  syncStatus: 'pending' | 'syncing' | 'synced' | 'failed';
+  syncError: string | null;
+  syncedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ApiErrorBody {
   error: { code: string; message: string; detail?: unknown };
 }

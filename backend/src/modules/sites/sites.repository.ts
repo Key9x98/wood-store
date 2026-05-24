@@ -35,6 +35,8 @@ export interface ISiteRepository {
   updateDbCredentials(id: number, creds: DbCredentials): Promise<Site>;
   markActive(id: number): Promise<Site>;
   markFailed(id: number, reason?: string): Promise<Site>;
+  setTemplate(id: number, templateId: number): Promise<Site>;
+  setPluginSecret(id: number, encryptedSecret: string): Promise<Site>;
 }
 
 export class SiteRepository implements ISiteRepository {
@@ -109,6 +111,14 @@ export class SiteRepository implements ISiteRepository {
 
   markFailed(id: number, _reason?: string) {
     return this.db.site.update({ where: { id }, data: { status: 'failed' } });
+  }
+
+  setTemplate(id: number, templateId: number) {
+    return this.db.site.update({ where: { id }, data: { templateId } });
+  }
+
+  setPluginSecret(id: number, encryptedSecret: string) {
+    return this.db.site.update({ where: { id }, data: { pluginSecretEnc: encryptedSecret } });
   }
 }
 

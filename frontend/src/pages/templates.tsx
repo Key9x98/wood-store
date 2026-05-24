@@ -36,13 +36,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { Badge, type BadgeProps } from '@/components/ui/badge';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 
@@ -53,10 +46,6 @@ const importSchema = z.object({
     .min(2)
     .max(64)
     .regex(/^[a-z][a-z0-9-]*$/, 'Slug không hợp lệ'),
-  type: z.enum(['local', 'git', 'zip']),
-  path: z.string().optional(),
-  repo: z.string().optional(),
-  ref: z.string().optional(),
 });
 type ImportForm = z.infer<typeof importSchema>;
 
@@ -81,7 +70,7 @@ export function TemplatesPage() {
   const importMut = useMutation({
     mutationFn: (input: ImportTemplateInput) => importTemplate(input),
     onSuccess: () => {
-      toast.success('Đã import template');
+      toast.success('Đã xếp hàng import — theme đang được đẩy lên codebase');
       qc.invalidateQueries({ queryKey: ['templates'] });
       setOpenImport(false);
     },
@@ -103,7 +92,7 @@ export function TemplatesPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Templates</h1>
           <p className="text-sm text-muted-foreground">
-            Theme + DB dump + manifest dùng để provision site mới.
+            Theme WordPress dùng để provision site. Import = đẩy theme lên codebase git.
           </p>
         </div>
         {isAdmin && (
@@ -191,6 +180,19 @@ export function TemplatesPage() {
   );
 }
 
+/** Read a File into a raw base64 string (no data: prefix). */
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string; // data:...;base64,XXXX
+      resolve(result.slice(result.indexOf(',') + 1));
+    };
+    reader.onerror = () => reject(new Error('Không đọc được file'));
+    reader.readAsDataURL(file);
+  });
+}
+
 function ImportTemplateDialog({
   open,
   onOpenChange,
@@ -204,23 +206,39 @@ function ImportTemplateDialog({
 }) {
   const form = useForm<ImportForm>({
     resolver: zodResolver(importSchema),
-    defaultValues: { slug: '', type: 'local', path: '', repo: '', ref: 'main' },
+    defaultValues: { slug: '' },
   });
-  const type = form.watch('type');
+  const [file, setFile] = useState<File | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const [reading, setReading] = useState(false);
 
-  function submit(v: ImportForm) {
-    const source: ImportTemplateInput['source'] =
-      v.type === 'git'
-        ? { type: 'git', repo: v.repo ?? '', ref: v.ref || 'main' }
-        : { type: v.type, path: v.path ?? '' };
-    onSubmit({ slug: v.slug, source });
+  function reset() {
+    form.reset();
+    setFile(null);
+    setFileError(null);
+  }
+
+  async function submit(v: ImportForm) {
+    if (!file) {
+      setFileError('Chọn file .zip theme');
+      return;
+    }
+    setReading(true);
+    try {
+      const zipBase64 = await fileToBase64(file);
+      onSubmit({ slug: v.slug, zipBase64 });
+    } catch {
+      setFileError('Không đọc được file');
+    } finally {
+      setReading(false);
+    }
   }
 
   return (
     <Dialog
       open={open}
       onOpenChange={(o) => {
-        if (!o) form.reset();
+        if (!o) reset();
         onOpenChange(o);
       }}
     >
@@ -228,64 +246,43 @@ function ImportTemplateDialog({
         <DialogHeader>
           <DialogTitle>Import template</DialogTitle>
           <DialogDescription>
-            Nguồn local (đường dẫn server), Git repo, hoặc Zip archive.
+            Upload theme WordPress (.zip). Theme được thêm vào codebase repo tại
+            <code className="mx-1">wp-content/themes/&lt;slug&gt;</code>
+            và tự commit + push lên git.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={form.handleSubmit(submit)} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="slug">Slug</Label>
-            <Input id="slug" placeholder="my-template" {...form.register('slug')} />
+            <Input id="slug" placeholder="my-theme" {...form.register('slug')} />
             {form.formState.errors.slug && (
               <p className="text-xs text-destructive">{form.formState.errors.slug.message}</p>
             )}
           </div>
           <div className="space-y-2">
-            <Label>Loại nguồn</Label>
-            <Select
-              value={type}
-              onValueChange={(v) => form.setValue('type', v as ImportForm['type'])}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="local">local (server path)</SelectItem>
-                <SelectItem value="git">git</SelectItem>
-                <SelectItem value="zip">zip (server path)</SelectItem>
-              </SelectContent>
-            </Select>
+            <Label htmlFor="zip">File theme (.zip)</Label>
+            <Input
+              id="zip"
+              type="file"
+              accept=".zip,application/zip"
+              onChange={(e) => {
+                setFile(e.target.files?.[0] ?? null);
+                setFileError(null);
+              }}
+            />
+            {file && (
+              <p className="text-xs text-muted-foreground">
+                {file.name} — {(file.size / 1024).toFixed(0)} KB
+              </p>
+            )}
+            {fileError && <p className="text-xs text-destructive">{fileError}</p>}
           </div>
-          {type === 'git' ? (
-            <>
-              <div className="space-y-2">
-                <Label htmlFor="repo">Git repo</Label>
-                <Input
-                  id="repo"
-                  placeholder="https://github.com/org/template.git"
-                  {...form.register('repo')}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="ref">Ref</Label>
-                <Input id="ref" placeholder="main" {...form.register('ref')} />
-              </div>
-            </>
-          ) : (
-            <div className="space-y-2">
-              <Label htmlFor="path">Path</Label>
-              <Input
-                id="path"
-                placeholder="/var/templates/abc hoặc /tmp/file.zip"
-                {...form.register('path')}
-              />
-            </div>
-          )}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Hủy
             </Button>
-            <Button type="submit" disabled={submitting}>
-              {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
+            <Button type="submit" disabled={submitting || reading}>
+              {(submitting || reading) && <Loader2 className="h-4 w-4 animate-spin" />}
               Import
             </Button>
           </DialogFooter>

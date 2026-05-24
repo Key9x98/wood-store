@@ -1,3 +1,6 @@
+import { promises as fs } from 'node:fs';
+import * as path from 'node:path';
+import { randomBytes } from 'node:crypto';
 import type { Template } from '@prisma/client';
 import { AppError } from '../../lib/errors';
 import { ok, err, type Result } from '../../lib/result';
@@ -14,14 +17,27 @@ export class TemplateService {
   constructor(
     private repo: ITemplateRepository,
     private queue: ITemplateImportQueue,
+    private stagingDir: string,
   ) {}
 
+  /**
+   * Persist the uploaded theme .zip to disk and enqueue the import job.
+   * Re-importing an existing slug updates that theme (idempotent).
+   */
   async startImport(input: ImportTemplateInput): Promise<Result<ImportTriggerResult, AppError>> {
-    const existing = await this.repo.findBySlug(input.slug);
-    if (existing && existing.status === 'ready') {
-      return err(new AppError('templates.already_exists', 409));
+    const zipBytes = Buffer.from(input.zipBase64, 'base64');
+    if (zipBytes.length === 0) {
+      return err(new AppError('templates.invalid_zip', 400));
     }
 
+    await fs.mkdir(this.stagingDir, { recursive: true });
+    const zipPath = path.join(
+      this.stagingDir,
+      `upload-${input.slug}-${Date.now()}-${randomBytes(4).toString('hex')}.zip`,
+    );
+    await fs.writeFile(zipPath, zipBytes);
+
+    const existing = await this.repo.findBySlug(input.slug);
     const row = existing
       ? await this.repo.update(existing.id, { status: 'building' })
       : await this.repo.create({
@@ -33,12 +49,7 @@ export class TemplateService {
           status: 'building',
         });
 
-    const job = await this.queue.enqueue({
-      templateId: row.id,
-      slug: input.slug,
-      source: input.source,
-    });
-
+    const job = await this.queue.enqueue({ templateId: row.id, slug: input.slug, zipPath });
     return ok({ templateId: row.id, jobId: job.jobId });
   }
 

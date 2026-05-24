@@ -15,6 +15,18 @@ templates/<template-slug>/
 └── README.md
 ```
 
+**Phân biệt rõ 3 thứ — đừng nhầm lẫn:**
+
+| Khái niệm | Là gì | Ở đâu |
+|---|---|---|
+| `wood-store-frontend` repo | WordPress runtime shell dùng chung (WP core + `ai-builder-plugin`) | clone 1 lần → `WP_CORE_DIR` |
+| **Template** | artifact = theme + `db_dump.sql` + manifest, lớp *trình bày* | `TEMPLATES_DIR/<slug>/` (mặc định `/var/lib/cms/templates`) |
+| **Site** | 1 WP install = copy WP core + overlay theme của template | `/var/www/html/sites/<domain>/` |
+
+Template **không** là 1 git repo riêng để site clone về. Provision copy WP core
+rồi overlay theme (xem `provisioning-flow.md` bước C). Nội dung thật của site nằm
+ở `cms_core`, không ở template (xem `site-management.md`).
+
 ## 2. `template.json` schema
 
 ```json
@@ -45,6 +57,10 @@ templates/<template-slug>/
 ```
 
 Validate bằng `ajv` ở backend trước khi import.
+
+`git_repo` / `git_ref` là **tùy chọn** — chỉ là *nguồn import* template (cách
+khác: upload zip). Chúng KHÔNG có nghĩa "mỗi site clone từ repo này". Sau import,
+template sống ở `TEMPLATES_DIR/<slug>/` trên host.
 
 ## 3. Cách backend dùng
 
@@ -84,8 +100,9 @@ Dùng skill `/create-template`. Các bước:
 7. Copy `wp-content/uploads/` vào `template/uploads/` (đã optimize ảnh).
 8. Viết `template.json`.
 9. Tạo `preview.png` 1280x800.
-10. Commit lên git repo `template-<slug>` riêng.
-11. Backend pull bằng `queue:template-import`.
+10. Đóng gói artifact: zip thư mục `templates/<slug>/` **hoặc** commit lên git.
+11. Import qua `queue:template-import` (nguồn = zip path hoặc git repo+ref) →
+    artifact giải nén vào `TEMPLATES_DIR/<slug>/`, đăng ký row `templates`.
 
 ## 5. URL placeholder rule
 
@@ -124,6 +141,21 @@ Plugin update vào `wp_options` (key `ai_builder_fields`) + render lại các pa
 - Site đã provision lưu `template_version` snapshot.
 - Khi template ra v2: KHÔNG auto-migrate site cũ. User chủ động chọn "update theme" → queue `template-upgrade-site`.
 - Worker upgrade: backup DB → apply diff theme/plugin → smoke test → commit, nếu fail rollback.
+
+## 8b. Đổi template cho 1 site đang chạy
+
+Khác với §8 (nâng cấp *cùng* template lên version mới), đây là **chuyển site
+sang một template KHÁC** (ví dụ `furniture-basic` → `furniture-premium`).
+
+- Endpoint: `PATCH /api/sites/:id { template_id }` → job `switch-template` trên
+  `queue:deploy`.
+- Worker: copy theme mới → plugin `POST /themes/activate` → import cấu trúc
+  template mới → **re-sync** `site_products`/`site_pages` từ `cms_core` → smoke
+  test → rollback theme cũ nếu fail.
+- **Sản phẩm KHÔNG bị mất**: chúng sống ở `cms_core`, chỉ được render lại lên
+  theme mới. Đây là lợi ích trực tiếp của mô hình "cms_core là kho gốc".
+
+Chi tiết đầy đủ: `docs/site-management.md §5`. Skill: `/change-site-template`.
 
 ## 9. Quality gate cho template
 

@@ -56,7 +56,8 @@ Khi worker restart, BullMQ tự pick up stalled jobs sau `stalledInterval` (defa
 ### Case B — Job stuck do step `runShell` hang
 
 Một số shell command có thể hang vô hạn nếu network/disk fail nhưng không timeout. Examples:
-- `git clone` repo lớn từ slow mirror
+- `git clone` template lớn từ slow mirror (worker `template-import`)
+- copy WP core (`fs.cp`) khi disk I/O nghẽn (worker `provision`, step C)
 - `mysql` import dump với foreign key check loop
 - `certbot` chờ HTTP-01 callback mà DNS chưa propagate
 

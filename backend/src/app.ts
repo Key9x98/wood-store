@@ -21,7 +21,7 @@ export function createApp(): Express {
   app.set('trust proxy', 1); // honor X-Forwarded-For for rate-limit IP keying
   app.use(helmet());
   app.use(cors(buildCorsOptions(env.CORS_ORIGINS)));
-  app.use(express.json({ limit: '1mb' }));
+  app.use(express.json({ limit: '25mb' })); // template imports upload a base64 .zip
   app.use(requestId);
 
   app.get('/healthz', (_req, res) => {

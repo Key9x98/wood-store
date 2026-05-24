@@ -65,19 +65,28 @@ await dnsProvider.upsertARecord({
 - Lưu record ID vào `dns_records` table để rollback.
 - Sau khi tạo: poll DNS (`dig +short A <domain> @1.1.1.1`) đến khi resolve về `SERVER_IP`, max 60s. Nếu timeout → vẫn tiếp tục (nhiều DNS lazy).
 
-### Bước C — Tạo folder & clone source
+### Bước C — Materialize site (copy WP core + overlay theme)
+
+KHÔNG `git clone` repo riêng cho từng site. Mỗi site = **copy `WP_CORE_DIR`**
+(WordPress core pristine, nguồn từ repo `wood-store-frontend`) rồi **overlay
+theme** của template vào `wp-content/themes/`.
 
 ```ts
-const root = `/var/www/html/sites/${domain}`;
-if (!await fs.exists(root)) {
-  await execFile('git', ['clone', '--depth=1', template.git_repo, root]);
+// src/modules/wordpress/source.service.ts → materializeSite()
+const root = `/var/www/html/sites/${domain}`;          // validate startsWith sitesRoot
+if (await isEmptyOrMissing(root)) {
+  await fs.cp(env.WP_CORE_DIR, root, { recursive: true });   // copy WP core
+  await fs.cp(theme.srcDir, `${root}/wp-content/themes/${theme.slug}`, { recursive: true });
 }
-await execFile('chown', ['-R', 'www-data:www-data', root]);
-await execFile('find', [root, '-type', 'd', '-exec', 'chmod', '755', '{}', '+']);
-await execFile('find', [root, '-type', 'f', '-exec', 'chmod', '644', '{}', '+']);
+await sourceService.chownToWebUser(root);              // chown www-data, cần chạy root
 ```
 
-**An toàn**: dùng `execFile`, KHÔNG nội suy `${domain}` vào string lệnh.
+- `theme.srcDir` lấy từ template artifact: `${TEMPLATES_DIR}/${templateSlug}/theme/`.
+- `db_dump.sql` của template import ở **bước E**, không phải bước này.
+- **Idempotent**: nếu folder đã tồn tại + non-empty → skip.
+
+**An toàn**: validate `root` `startsWith('/var/www/html/sites/')`; KHÔNG nội suy
+`${domain}` vào string lệnh shell.
 
 ### Bước D — Tạo MySQL DB cho WordPress
 
@@ -212,6 +221,16 @@ if (res.status !== 200) throw new Error('smoke_test_failed');
 UPDATE sites SET status='active', provisioned_at=NOW() WHERE id=?;
 ```
 Emit event `site.provisioned` (cho webhook user/notification).
+
+### Sau provision — đẩy nội dung thật
+
+Provision chỉ dựng *vỏ* site (WP core + theme + sample data của template). Nội
+dung thật của user (sản phẩm, trang, settings) nằm ở `cms_core` và được đẩy lên
+qua `queue:content-sync` — KHÔNG thuộc luồng provision. Sau bước K, nếu site đã
+có sẵn nội dung canonical, Express enqueue 1 job `content-sync` op `full-resync`.
+
+Cách backend quản lý site sau khi provision (thêm/sửa/xoá nội dung, đổi
+template): đọc **`docs/site-management.md`**.
 
 ---
 

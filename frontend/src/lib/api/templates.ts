@@ -1,23 +1,15 @@
 import { api } from '@/lib/api';
 import type { ItemResponse, ListResponse, Template } from '@/lib/types';
 
-export type ImportSource =
-  | { type: 'local'; path: string }
-  | { type: 'git'; repo: string; ref?: string }
-  | { type: 'zip'; path: string };
-
-export interface ImportTemplateInput {
-  slug: string;
-  source: ImportSource;
-}
-
 export interface ListTemplatesParams {
   limit?: number;
   offset?: number;
   status?: 'building' | 'ready' | 'failed';
 }
 
-export async function listTemplates(params: ListTemplatesParams = {}): Promise<ListResponse<Template>> {
+export async function listTemplates(
+  params: ListTemplatesParams = {},
+): Promise<ListResponse<Template>> {
   const res = await api.get<ListResponse<Template>>('/templates', { params });
   return res.data;
 }
@@ -27,8 +19,21 @@ export async function getTemplate(id: number): Promise<Template> {
   return res.data.data;
 }
 
-export async function importTemplate(input: ImportTemplateInput): Promise<Template> {
-  const res = await api.post<ItemResponse<Template>>('/templates/import', input);
+/** Import = upload a WordPress theme as a base64-encoded .zip. */
+export interface ImportTemplateInput {
+  slug: string;
+  zipBase64: string;
+}
+
+export interface ImportTemplateResult {
+  templateId: number;
+  jobId: string;
+}
+
+export async function importTemplate(
+  input: ImportTemplateInput,
+): Promise<ImportTemplateResult> {
+  const res = await api.post<ItemResponse<ImportTemplateResult>>('/templates/import', input);
   return res.data.data;
 }
 

@@ -22,6 +22,8 @@ export interface DeploySiteContext {
     pluginSecretEnc: string | null;
     templateId: number;
   } | null>;
+  /** Point the site at a different template (after a successful switch). */
+  setTemplate(siteId: number, templateId: number): Promise<unknown>;
 }
 
 export interface DeployTemplateContext {
@@ -45,7 +47,9 @@ export interface DeployThemeDeps {
 
 export interface DeploySummary {
   themeSlug: string;
+  templateId: number;
   zipBytes: number;
+  switched: boolean;
 }
 
 interface ThemeRef {
@@ -80,9 +84,10 @@ export function createThemePackager(runShell: ShellRunner): ThemePackager {
 }
 
 /**
- * Packages a site's template theme and pushes it to the live WordPress site
- * via the ai-builder-plugin (`POST /themes` → activate → flush). No filesystem
- * access to the site is needed — the plugin unpacks the zip as www-data.
+ * Pushes a template theme to a site's live WordPress via the ai-builder-plugin.
+ *  - op 'deploy-theme'    → (re)installs the site's CURRENT template theme.
+ *  - op 'switch-template' → installs a DIFFERENT template's theme, then points
+ *                           the site row at it once the theme is actually live.
  */
 export class DeployThemeService {
   constructor(private deps: DeployThemeDeps) {}
@@ -94,7 +99,15 @@ export class DeployThemeService {
       return err(new AppError('deploy.site_not_provisioned', 409));
     }
 
-    const template = await this.deps.templates.findById(site.templateId);
+    let templateId: number;
+    if (payload.op === 'switch-template') {
+      if (!payload.templateId) return err(new AppError('deploy.missing_template_id', 400));
+      templateId = payload.templateId;
+    } else {
+      templateId = site.templateId;
+    }
+
+    const template = await this.deps.templates.findById(templateId);
     if (!template) return err(new AppError('deploy.template_not_found', 404));
 
     const theme = this.themeRef(template.manifest);
@@ -137,7 +150,13 @@ export class DeployThemeService {
       );
     }
 
-    return ok({ themeSlug: theme.slug, zipBytes: zip.length });
+    // Only repoint the site row once the new theme is actually live on WordPress.
+    const switched = payload.op === 'switch-template' && templateId !== site.templateId;
+    if (switched) {
+      await this.deps.sites.setTemplate(payload.siteId, templateId);
+    }
+
+    return ok({ themeSlug: theme.slug, templateId, zipBytes: zip.length, switched });
   }
 
   private themeRef(manifest: unknown): ThemeRef | null {

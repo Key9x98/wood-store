@@ -60,9 +60,9 @@ new Worker('provision', async (job) => {
   try {
     await sitesRepo.transitionToProvisioning(siteId);
 
-    await runStep('B', () => dnsService.upsertA(siteId));        completed.push('B');
-    await runStep('C', () => sourceService.cloneTemplate(siteId));completed.push('C');
-    await runStep('D', () => dbService.createWpDatabase(siteId));completed.push('D');
+    await runStep('B', () => dnsService.upsertA(siteId));         completed.push('B');
+    await runStep('C', () => sourceService.materializeSite(siteId));completed.push('C');
+    await runStep('D', () => dbService.createWpDatabase(siteId));  completed.push('D');
     await runStep('E', () => dbService.importDump(siteId));      completed.push('E');
     await runStep('F', () => wpConfigService.generate(siteId));  completed.push('F');
     await runStep('G', () => sourceService.activateTheme(siteId));completed.push('G');
@@ -90,11 +90,13 @@ new Worker('provision', async (job) => {
   - `CREATE USER ... IDENTIFIED BY ...` (skip nếu exists).
   - `GRANT ALL ON dbName.* TO user`.
   - Lưu `db_password` encrypted vào `sites`.
-- `cloneTemplate(siteId)`:
+- `materializeSite(siteId)`:
+  - KHÔNG `git clone` repo riêng cho site. Copy WP core + overlay theme.
   - Đường dẫn target validate `startsWith('/var/www/html/sites/')`.
-  - Nếu folder exists + non-empty → skip.
-  - `git clone --depth=1 <template.git_repo> <target>`.
-  - chown www-data + chmod đúng.
+  - Nếu folder exists + non-empty → skip (idempotent).
+  - `fs.cp(WP_CORE_DIR, siteRoot)` rồi `fs.cp(template theme → wp-content/themes/<slug>)`.
+  - `chownToWebUser` (www-data) — worker phải chạy bằng root.
+  - `db_dump.sql` của template import ở step E, KHÔNG ở step này.
 - `nginxService.deployConfig(siteId)`:
   - Render từ template `templates/nginx-site.template.conf`.
   - Atomic write: `.conf.tmp` → rename.

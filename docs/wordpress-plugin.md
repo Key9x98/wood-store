@@ -14,6 +14,11 @@ Plugin riêng cài trên mọi site WordPress để Express CMS điều khiển 
 
 KHÔNG cho phép user cuối edit qua plugin này. Đây là plugin **system**, ẩn khỏi UI admin (chỉ super-admin nhìn thấy).
 
+> Plugin này là **cầu nối DUY NHẤT** giữa Express và 1 site. Express không bao
+> giờ kết nối thẳng vào DB `wp_<domain>` để ghi nội dung — mọi thay đổi đi qua
+> các REST endpoint dưới đây. Xem mô hình control-plane/render-plane ở
+> `docs/site-management.md`.
+
 ---
 
 ## 2. Cấu trúc plugin
@@ -68,13 +73,21 @@ Plugin:
 |---|---|---|
 | GET | `/health` | Liveness, trả về version + DB OK |
 | POST | `/content/pages` | Upsert page (slug, title, content, meta) |
+| GET | `/content/products` | List product (slug + id) — dùng cho reconciliation |
 | POST | `/content/posts` | Upsert post |
 | POST | `/content/products` | Upsert WooCommerce product |
-| POST | `/media/upload` | Multipart upload, trả về attachment_id + url |
+| DELETE | `/content/products/:slug` | Trash product theo slug (cho luồng xoá) |
+| POST | `/media/upload` | Upload ảnh — multipart `file` HOẶC JSON `{source_url}` (sideload từ URL); trả `attachment_id` + url |
 | POST | `/fields` | Update `ai_builder_fields` option |
+| GET | `/themes` | List theme đã cài (slug, version, active) |
+| POST | `/themes/activate` | Kích hoạt theme theo slug (đổi template) |
 | POST | `/elementor/rebuild` | Trigger Elementor regenerate CSS |
 | POST | `/cache/flush` | Flush WP cache + page cache plugin |
 | GET | `/status` | Trả về theme, plugin list, WP version |
+
+`/themes*` do `ThemesController.php` + `Services/ThemeManager.php` xử lý — phục
+vụ luồng "đổi template cho site đang chạy" (xem `site-management.md §5`). Mọi
+route đều qua `permission_callback => HmacAuthenticator::verify`.
 
 Mỗi endpoint:
 - `permission_callback => [HmacAuthenticator::class, 'verify']`

@@ -5,6 +5,7 @@ import { LoginPage } from '@/pages/login';
 import { DashboardPage } from '@/pages/dashboard';
 import { UsersPage } from '@/pages/users';
 import { SitesPage } from '@/pages/sites';
+import { SiteDetailPage } from '@/pages/site-detail';
 import { TemplatesPage } from '@/pages/templates';
 import { ProtectedRoute } from '@/routes/protected-route';
 import { AppLayout } from '@/components/layout/app-layout';
@@ -32,6 +33,7 @@ export default function App() {
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="dashboard" element={<DashboardPage />} />
             <Route path="sites" element={<SitesPage />} />
+            <Route path="sites/:siteId" element={<SiteDetailPage />} />
             <Route path="templates" element={<TemplatesPage />} />
             <Route
               path="users"

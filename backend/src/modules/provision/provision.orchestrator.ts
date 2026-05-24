@@ -202,6 +202,20 @@ export class ProvisionOrchestrator {
       });
       track(completed, 'G');
 
+      // ─── L. Plugin HMAC secret ───────────────────────────────────────
+      await this.runStep(ctx, 'L', async () => {
+        // Idempotent at two levels: runStep skips when state.L.done is set;
+        // we also skip if a secret already exists on the site row (e.g. set
+        // manually before this step existed) — never rotate a live secret.
+        const cur = await this.deps.sitesRepo.findById(siteId);
+        if (cur?.pluginSecretEnc) return undefined;
+        const secret = randomBytes(32).toString('hex');
+        await this.deps.wpCliService.setOption(srcArt.siteRoot, 'ai_builder_secret', secret);
+        await this.deps.sitesRepo.setPluginSecret(siteId, encrypt(secret));
+        return undefined;
+      });
+      track(completed, 'L');
+
       // ─── H. Nginx ─────────────────────────────────────────────────────
       const nginxArt = await this.runStep(ctx, 'H', async () => {
         return this.deps.webServerService.deployConfig(domain, srcArt.siteRoot);

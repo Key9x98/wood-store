@@ -9,28 +9,15 @@ export const TemplateSlugSchema = z
 
 export const TemplateStatusSchema = z.enum(['building', 'ready', 'failed']);
 
-const LocalSource = z.object({
-  type: z.literal('local'),
-  path: z.string().min(1),
-});
-
-const GitSource = z.object({
-  type: z.literal('git'),
-  repo: z.string().min(1),
-  ref: z.string().min(1).default('main'),
-});
-
-const ZipSource = z.object({
-  type: z.literal('zip'),
-  path: z.string().min(1),
-});
-
-export const ImportSourceSchema = z.discriminatedUnion('type', [LocalSource, GitSource, ZipSource]);
-export type ImportSource = z.infer<typeof ImportSourceSchema>;
-
+/**
+ * Import a template = upload a WordPress theme as a base64-encoded `.zip`.
+ * The worker drops the theme into the codebase repo (`GIT_URLS`) under
+ * `wp-content/themes/<slug>` and pushes it. No per-import source type — the
+ * git target is fixed infrastructure (.env GIT_URLS / GIT_BRANCH).
+ */
 export const ImportTemplateSchema = z.object({
   slug: TemplateSlugSchema,
-  source: ImportSourceSchema,
+  zipBase64: z.string().min(1, 'templates.zip_required'),
 });
 export type ImportTemplateInput = z.infer<typeof ImportTemplateSchema>;
 

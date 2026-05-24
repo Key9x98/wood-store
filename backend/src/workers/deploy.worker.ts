@@ -7,7 +7,8 @@ import { deployCounter } from '../lib/metrics';
 
 const JobSchema = z.object({
   siteId: z.number().int().positive(),
-  op: z.enum(['deploy-theme']),
+  op: z.enum(['deploy-theme', 'switch-template']),
+  templateId: z.number().int().positive().optional(),
 });
 
 const worker = new Worker(

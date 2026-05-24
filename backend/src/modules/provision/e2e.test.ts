@@ -66,6 +66,10 @@ class InMemorySitesRepo implements ISiteRepository {
     return this.patch(id, { status: 'active', provisionedAt: new Date() });
   }
   async markFailed(id: number) { return this.patch(id, { status: 'failed' }); }
+  async setTemplate(id: number, templateId: number) { return this.patch(id, { templateId }); }
+  async setPluginSecret(id: number, encryptedSecret: string) {
+    return this.patch(id, { pluginSecretEnc: encryptedSecret });
+  }
 
   private async patch(id: number, p: Partial<Site>) {
     const r = await this.findById(id);
@@ -242,7 +246,7 @@ describe('ProvisionOrchestrator — E2E in sandbox', () => {
     expect(site?.dbPasswordEnc).toBeTruthy();
 
     const state = site?.provisionState as ProvisionState;
-    for (const k of ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K'] as StepKey[]) {
+    for (const k of ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'L', 'H', 'I', 'J', 'K'] as StepKey[]) {
       expect(state.steps[k]?.done).toBe(true);
     }
 
@@ -293,7 +297,7 @@ describe('ProvisionOrchestrator — E2E in sandbox', () => {
     expect(h.rollbackEnqueueSpy).toHaveBeenCalledTimes(1);
     const payload = h.rollbackEnqueueSpy.mock.calls[0]?.[0] as { siteId: number; completed: StepKey[] };
     expect(payload.siteId).toBe(siteId);
-    expect(payload.completed).toEqual(['A', 'B', 'C', 'D', 'E', 'F', 'G']);
+    expect(payload.completed).toEqual(['A', 'B', 'C', 'D', 'E', 'F', 'G', 'L']);
   });
 
   it('rollback compensates DNS + DB + folder in reverse', async () => {
@@ -305,7 +309,7 @@ describe('ProvisionOrchestrator — E2E in sandbox', () => {
     const siteFs = path.join(sandboxRoot, 'c.example.com');
     expect(await fs.access(siteFs).then(() => true, () => false)).toBe(true);
 
-    await h.orchestrator.rollback(siteId, ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K']);
+    await h.orchestrator.rollback(siteId, ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'L', 'H', 'I', 'J', 'K']);
 
     expect(h.dnsProvider.list('example.com')).toHaveLength(0);
     expect(await fs.access(siteFs).then(() => true, () => false)).toBe(false);

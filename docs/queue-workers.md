@@ -63,7 +63,7 @@ async function runStep<K extends keyof ProvisionState['steps']>(
 Worker chính:
 ```ts
 await runStep(siteId, 'B', () => dnsService.createRecord(domain));
-await runStep(siteId, 'C', () => sourceService.cloneTemplate(domain, template));
+await runStep(siteId, 'C', () => sourceService.materializeSite(domain, template));
 // ...
 ```
 

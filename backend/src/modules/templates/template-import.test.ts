@@ -1,25 +1,29 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { promises as fs } from 'node:fs';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import type { Template, Prisma } from '@prisma/client';
 import { TemplateImportService } from './template-import.service';
-import type { ITemplateRepository, TemplateCreateData, TemplateUpdateData, ListOpts } from './templates.repository';
+import type {
+  ITemplateRepository,
+  TemplateCreateData,
+  TemplateUpdateData,
+  ListOpts,
+} from './templates.repository';
 
 /**
- * Integration-ish test:
- *   - Real filesystem (in os.tmpdir())
- *   - Real Ajv manifest validation
- *   - Real fs.cp / fs.rename
- *   - In-memory repository (so we don't need MySQL)
- *
- * Verifies the full TemplateImportService.run flow as the worker would invoke it.
+ * Integration test — real fs + real git with a local bare repo as the remote
+ * (so `git push` works without credentials). Verifies the import flow:
+ * unzip → place theme into codebase/wp-content/themes/<slug> → commit + push.
  */
+
+const exec = promisify(execFile);
 
 class InMemoryRepo implements ITemplateRepository {
   rows: Template[] = [];
   private nextId = 1;
-
   async findById(id: number) {
     return this.rows.find((r) => r.id === id) ?? null;
   }
@@ -42,21 +46,21 @@ class InMemoryRepo implements ITemplateRepository {
     return row;
   }
   async update(id: number, patch: TemplateUpdateData) {
-    const row = this.rows.find((r) => r.id === id);
-    if (!row) throw new Error(`not_found: ${id}`);
-    if (patch.name !== undefined) row.name = patch.name;
-    if (patch.version !== undefined) row.version = patch.version;
-    if (patch.manifest !== undefined) row.manifest = patch.manifest as Prisma.JsonValue;
-    if (patch.localPath !== undefined) row.localPath = patch.localPath;
-    if (patch.status !== undefined) row.status = patch.status;
-    row.updatedAt = new Date();
-    return row;
+    const r = this.rows.find((x) => x.id === id);
+    if (!r) throw new Error(`not_found ${id}`);
+    if (patch.name !== undefined) r.name = patch.name;
+    if (patch.version !== undefined) r.version = patch.version;
+    if (patch.manifest !== undefined) r.manifest = patch.manifest as Prisma.JsonValue;
+    if (patch.localPath !== undefined) r.localPath = patch.localPath;
+    if (patch.status !== undefined) r.status = patch.status;
+    r.updatedAt = new Date();
+    return r;
   }
   async delete(id: number) {
-    const idx = this.rows.findIndex((r) => r.id === id);
-    if (idx < 0) throw new Error(`not_found: ${id}`);
-    const removed = this.rows[idx]!;
-    this.rows.splice(idx, 1);
+    const i = this.rows.findIndex((x) => x.id === id);
+    if (i < 0) throw new Error('nf');
+    const removed = this.rows[i]!;
+    this.rows.splice(i, 1);
     return removed;
   }
   async list(opts: ListOpts) {
@@ -69,197 +73,136 @@ class InMemoryRepo implements ITemplateRepository {
   }
 }
 
-const testRoot = path.join(os.tmpdir(), `cms-test-templates-${Date.now()}-${process.pid}`);
-const fakeSourceDir = path.join(testRoot, 'fake-template-src');
-const stagingDir = path.join(testRoot, 'staging');
-const templatesDir = path.join(testRoot, 'templates');
+const tmpRoot = path.join(os.tmpdir(), `cms-test-import-${Date.now()}-${process.pid}`);
+const stagingDir = path.join(tmpRoot, 'staging');
+const remoteDir = path.join(tmpRoot, 'remote.git');
+const codebaseDir = path.join(tmpRoot, 'codebase');
+const GIT_BRANCH = 'main';
 
-const writeValidFake = async (slug = 'fake-template') => {
-  await fs.mkdir(fakeSourceDir, { recursive: true });
-  await fs.writeFile(
-    path.join(fakeSourceDir, 'template.json'),
-    JSON.stringify({
-      slug,
-      name: 'Fake Template',
-      version: '0.1.0',
-      theme: { slug: 'fake-theme', path: 'theme/' },
-      fields: [{ key: 'shop_name', label: 'Tên xưởng', type: 'string', required: true }],
-    }),
-  );
-  await fs.mkdir(path.join(fakeSourceDir, 'theme'), { recursive: true });
-  await fs.writeFile(path.join(fakeSourceDir, 'theme', 'index.php'), '<?php // fake');
-  await fs.writeFile(path.join(fakeSourceDir, 'preview.png'), 'PNG-bytes-stub');
-};
+const fileExists = (p: string) => fs.access(p).then(() => true, () => false);
 
-const cleanFakeSrc = async () => {
-  await fs.rm(fakeSourceDir, { recursive: true, force: true });
-};
+/** Build a .zip containing a WordPress theme folder (`the-theme/`). */
+async function makeThemeZip(zipPath: string, version = '2.3.0', withStyle = true): Promise<void> {
+  const src = await fs.mkdtemp(path.join(tmpRoot, 'tsrc-'));
+  await fs.mkdir(path.join(src, 'the-theme'));
+  if (withStyle) {
+    await fs.writeFile(
+      path.join(src, 'the-theme', 'style.css'),
+      `/*\nTheme Name: Imported Theme\nVersion: ${version}\n*/\nbody{}\n`,
+    );
+  }
+  await fs.writeFile(path.join(src, 'the-theme', 'index.php'), '<?php // theme');
+  await fs.rm(zipPath, { force: true });
+  await exec('zip', ['-r', '-q', zipPath, 'the-theme'], { cwd: src });
+  await fs.rm(src, { recursive: true, force: true });
+}
+
+function makeService(repo: InMemoryRepo): TemplateImportService {
+  return new TemplateImportService(repo, {
+    stagingDir,
+    codebaseDir,
+    gitUrl: remoteDir,
+    gitBranch: GIT_BRANCH,
+  });
+}
 
 beforeAll(async () => {
-  await fs.mkdir(testRoot, { recursive: true });
+  await fs.mkdir(stagingDir, { recursive: true });
+  await exec('git', ['init', '--bare', remoteDir]);
+  await exec('git', ['clone', remoteDir, codebaseDir]); // codebase = empty clone
 });
-
 afterAll(async () => {
-  await fs.rm(testRoot, { recursive: true, force: true });
+  await fs.rm(tmpRoot, { recursive: true, force: true });
 });
 
-describe('TemplateImportService (integration, real fs)', () => {
-  it('imports a local fake template and marks status=ready', async () => {
-    await writeValidFake('fake-template');
+describe('TemplateImportService (real fs + git)', () => {
+  it('imports a theme zip into the codebase and pushes it to the remote', async () => {
     const repo = new InMemoryRepo();
-    const svc = new TemplateImportService(repo, { templatesDir, stagingDir });
-
-    // simulate what TemplateService.startImport does first
     const row = await repo.create({
-      slug: 'fake-template',
-      name: 'fake-template',
+      slug: 'furniture-x',
+      name: 'furniture-x',
       version: '0.0.0',
-      manifest: { __placeholder: true },
+      manifest: {},
       localPath: '',
       status: 'building',
     });
+    const zip = path.join(tmpRoot, 'up1.zip');
+    await makeThemeZip(zip);
 
-    const r = await svc.run({
+    const r = await makeService(repo).run({
       templateId: row.id,
-      slug: 'fake-template',
-      source: { type: 'local', path: fakeSourceDir },
+      slug: 'furniture-x',
+      zipPath: zip,
     });
 
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.value.status).toBe('ready');
-      expect(r.value.name).toBe('Fake Template');
-      expect(r.value.version).toBe('0.1.0');
-      expect(r.value.localPath).toBe(path.join(templatesDir, 'fake-template'));
+      expect(r.value.name).toBe('Imported Theme'); // from style.css header
+      expect(r.value.version).toBe('2.3.0');
+      expect(r.value.localPath).toBe(path.join(codebaseDir, 'wp-content/themes/furniture-x'));
     }
-
-    // DB side: only 1 row, status=ready
-    expect(repo.rows.length).toBe(1);
-    expect(repo.rows[0]?.status).toBe('ready');
-    expect(repo.rows[0]?.slug).toBe('fake-template');
-
-    // Filesystem side: final dir has template.json
-    const finalManifest = path.join(templatesDir, 'fake-template', 'template.json');
-    const exists = await fs.access(finalManifest).then(() => true, () => false);
-    expect(exists).toBe(true);
-
-    await cleanFakeSrc();
-    await fs.rm(path.join(templatesDir, 'fake-template'), { recursive: true, force: true });
+    // theme landed in the codebase working tree
+    expect(
+      await fileExists(path.join(codebaseDir, 'wp-content/themes/furniture-x/style.css')),
+    ).toBe(true);
+    // commit reached the remote on the configured branch
+    const log = await exec('git', ['--git-dir', remoteDir, 'log', '--oneline', GIT_BRANCH]);
+    expect(log.stdout).toContain('furniture-x');
+    // uploaded zip cleaned up
+    expect(await fileExists(zip)).toBe(false);
   });
 
-  it('is idempotent — re-running overwrites final dir, status stays ready', async () => {
-    await writeValidFake('fake-template-2');
+  it('fails with theme_invalid when the zip has no style.css', async () => {
     const repo = new InMemoryRepo();
-    const svc = new TemplateImportService(repo, { templatesDir, stagingDir });
     const row = await repo.create({
-      slug: 'fake-template-2',
-      name: 'placeholder',
+      slug: 'bad-theme',
+      name: 'bad-theme',
+      version: '0.0.0',
+      manifest: {},
+      localPath: '',
+      status: 'building',
+    });
+    const zip = path.join(tmpRoot, 'up2.zip');
+    await makeThemeZip(zip, '1.0.0', false); // no style.css
+
+    const r = await makeService(repo).run({
+      templateId: row.id,
+      slug: 'bad-theme',
+      zipPath: zip,
+    });
+
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.code).toBe('theme_invalid');
+    expect(repo.rows[0]?.status).toBe('failed');
+  });
+
+  it('re-importing the same slug updates the theme (idempotent)', async () => {
+    const repo = new InMemoryRepo();
+    const row = await repo.create({
+      slug: 'furniture-z',
+      name: 'furniture-z',
       version: '0.0.0',
       manifest: {},
       localPath: '',
       status: 'building',
     });
 
-    const r1 = await svc.run({
-      templateId: row.id,
-      slug: 'fake-template-2',
-      source: { type: 'local', path: fakeSourceDir },
-    });
+    const z1 = path.join(tmpRoot, 'z1.zip');
+    await makeThemeZip(z1, '1.0.0');
+    const r1 = await makeService(repo).run({ templateId: row.id, slug: 'furniture-z', zipPath: z1 });
     expect(r1.ok).toBe(true);
 
-    // simulate retry — set status back to building (what service.startImport does)
-    await repo.update(row.id, { status: 'building' });
+    await repo.update(row.id, { status: 'building' }); // what startImport does on retry
+    const z2 = path.join(tmpRoot, 'z2.zip');
+    await makeThemeZip(z2, '4.5.0');
+    const r2 = await makeService(repo).run({ templateId: row.id, slug: 'furniture-z', zipPath: z2 });
 
-    const r2 = await svc.run({
-      templateId: row.id,
-      slug: 'fake-template-2',
-      source: { type: 'local', path: fakeSourceDir },
-    });
     expect(r2.ok).toBe(true);
-    if (r2.ok) expect(r2.value.status).toBe('ready');
-
+    if (r2.ok) {
+      expect(r2.value.status).toBe('ready');
+      expect(r2.value.version).toBe('4.5.0'); // updated
+    }
     expect(repo.rows.length).toBe(1);
-    await cleanFakeSrc();
-    await fs.rm(path.join(templatesDir, 'fake-template-2'), { recursive: true, force: true });
-  });
-
-  it('marks failed when manifest is missing', async () => {
-    await fs.mkdir(fakeSourceDir, { recursive: true });
-    await fs.writeFile(path.join(fakeSourceDir, 'theme.txt'), 'no manifest here');
-    const repo = new InMemoryRepo();
-    const svc = new TemplateImportService(repo, { templatesDir, stagingDir });
-    const row = await repo.create({
-      slug: 'bad1',
-      name: 'placeholder',
-      version: '0.0.0',
-      manifest: {},
-      localPath: '',
-      status: 'building',
-    });
-
-    const r = await svc.run({
-      templateId: row.id,
-      slug: 'bad1',
-      source: { type: 'local', path: fakeSourceDir },
-    });
-
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error.code).toBe('manifest_missing');
-    expect(repo.rows[0]?.status).toBe('failed');
-    await cleanFakeSrc();
-  });
-
-  it('marks failed when manifest schema invalid', async () => {
-    await fs.mkdir(fakeSourceDir, { recursive: true });
-    await fs.writeFile(
-      path.join(fakeSourceDir, 'template.json'),
-      JSON.stringify({ slug: 'ok', name: 'X' }), // missing version
-    );
-    const repo = new InMemoryRepo();
-    const svc = new TemplateImportService(repo, { templatesDir, stagingDir });
-    const row = await repo.create({
-      slug: 'bad2',
-      name: 'placeholder',
-      version: '0.0.0',
-      manifest: {},
-      localPath: '',
-      status: 'building',
-    });
-
-    const r = await svc.run({
-      templateId: row.id,
-      slug: 'bad2',
-      source: { type: 'local', path: fakeSourceDir },
-    });
-
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error.code).toBe('manifest_invalid_schema');
-    expect(repo.rows[0]?.status).toBe('failed');
-    await cleanFakeSrc();
-  });
-
-  it('marks failed when payload slug ≠ manifest slug', async () => {
-    await writeValidFake('manifest-says-foo');
-    const repo = new InMemoryRepo();
-    const svc = new TemplateImportService(repo, { templatesDir, stagingDir });
-    const row = await repo.create({
-      slug: 'bar-from-payload',
-      name: 'placeholder',
-      version: '0.0.0',
-      manifest: {},
-      localPath: '',
-      status: 'building',
-    });
-
-    const r = await svc.run({
-      templateId: row.id,
-      slug: 'bar-from-payload',
-      source: { type: 'local', path: fakeSourceDir },
-    });
-
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error.code).toBe('slug_mismatch');
-    expect(repo.rows[0]?.status).toBe('failed');
-    await cleanFakeSrc();
   });
 });

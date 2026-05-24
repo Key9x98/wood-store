@@ -1,11 +1,13 @@
 import { Queue } from 'bullmq';
 import { redis } from '../lib/redis';
 
-export type DeployOp = 'deploy-theme';
+export type DeployOp = 'deploy-theme' | 'switch-template';
 
 export interface DeployJobPayload {
   siteId: number;
   op: DeployOp;
+  /** Target template — required when op is 'switch-template'. */
+  templateId?: number;
 }
 
 export interface IDeployQueue {

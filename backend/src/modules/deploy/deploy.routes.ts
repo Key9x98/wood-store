@@ -9,3 +9,4 @@ export const deployRoutes = Router();
 deployRoutes.use(authRequired);
 
 deployRoutes.post('/:siteId/deploy-theme', asyncHandler(controller.deployTheme));
+deployRoutes.post('/:siteId/switch-template', asyncHandler(controller.switchTemplate));

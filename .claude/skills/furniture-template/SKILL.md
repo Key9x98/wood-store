@@ -31,18 +31,22 @@ Lưu: `wp_posts` (product) + `wp_postmeta` (các field) + WooCommerce taxonomy.
 
 ## 4. Quy trình apply template + seed data
 
+Sản phẩm là dữ liệu canonical → ghi `cms_core` TRƯỚC, rồi sync. Xem skill
+`/sync-site-content` và `docs/site-management.md`.
+
 ```
 1. Express POST /api/sites { template_slug: 'furniture', custom_fields: {...} }
-2. Worker provision như flow chuẩn.
-3. Sau provision: enqueue ai:seed-products(siteId, products[]).
-4. Worker AI/Seed:
-   a. Foreach product:
-      - download images → POST /wp-json/ai-builder/v1/media/upload
-      - POST /wp-json/ai-builder/v1/content/products với attachment_ids
-   b. Compute sale_percent client-side trước khi POST.
-   c. Set taxonomy terms (categories, wood, finish).
-5. Apply fields (shop_name, hotline, logo): POST /wp-json/ai-builder/v1/fields.
-6. Flush cache: POST /wp-json/ai-builder/v1/cache/flush.
+2. Worker provision như flow chuẩn (dựng vỏ site + sample data của template).
+3. Seed sản phẩm thật:
+   a. Validate + compute sale_percent → INSERT cms_core.site_products
+      (sync_status='pending'). Custom fields → cms_core.site_settings.
+   b. enqueue queue:content-sync { siteId, op:'full-resync' }.
+4. ContentSyncWorker:
+   a. Foreach product: download images → POST /media/upload (dedup sha256)
+      → POST /content/products với attachment_ids → lưu wp_post_id.
+   b. Set taxonomy terms (categories, wood, finish).
+   c. Apply fields (shop_name, hotline, logo) → POST /fields.
+   d. POST /cache/flush.
 ```
 
 ## 5. Mapping field → WP

@@ -154,7 +154,8 @@ describe('XService', () => {
 - `users` — admin manage user.
 - `sites` — CRUD site + trigger provision.
 - `templates` — CRUD + import.
-- `wordpress` — WP-CLI + plugin client.
+- `content` — CRUD `site_products`/`site_pages`/`site_media` (canonical) + enqueue content-sync.
+- `wordpress` — WP-CLI + `ai-builder-plugin` REST client (HMAC).
 - `dns` — provider adapters.
 - `ssl` — certbot wrapper.
 - `deployments` — code/theme deploy.

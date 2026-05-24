@@ -9,7 +9,11 @@ import { DeployService } from './deploy.service';
 import { DeployThemeService, createThemePackager } from './deploy-theme.service';
 
 // siteRepository / templateRepository structurally satisfy the narrow lookups.
-export const deployService = new DeployService(siteRepository, DeployQueueAdapter);
+export const deployService = new DeployService(
+  siteRepository,
+  templateRepository,
+  DeployQueueAdapter,
+);
 
 export const deployThemeService = new DeployThemeService({
   sites: siteRepository,

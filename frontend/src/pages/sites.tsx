@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -149,7 +150,11 @@ export function SitesPage() {
             {data?.data.map((s) => (
               <TableRow key={s.id}>
                 <TableCell className="font-mono">{s.id}</TableCell>
-                <TableCell className="font-medium">{s.domain}</TableCell>
+                <TableCell className="font-medium">
+                  <Link to={`/sites/${s.id}`} className="text-primary hover:underline">
+                    {s.domain}
+                  </Link>
+                </TableCell>
                 <TableCell>
                   <Badge variant={statusVariant[s.status]}>{s.status}</Badge>
                 </TableCell>

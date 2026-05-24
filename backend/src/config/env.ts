@@ -23,6 +23,13 @@ const schema = z.object({
   TEMPLATES_DIR: z.string().default('/var/lib/cms/templates'),
   TEMPLATES_STAGING_DIR: z.string().default('/var/lib/cms/staging'),
 
+  // Codebase git repo (wood-store-frontend). Template import clones it here if
+  // missing, drops the theme into <CODEBASE_DIR>/wp-content/themes/<slug>, then
+  // commits + pushes to GIT_URLS on branch GIT_BRANCH.
+  GIT_URLS: z.string().default(''),
+  GIT_BRANCH: z.string().default('main'),
+  CODEBASE_DIR: z.string().default('/var/www/html/codebase'),
+
   // Privileged MySQL account used to create per-site WordPress databases/users.
   // Needs global CREATE / CREATE USER / GRANT OPTION — distinct from DATABASE_URL.
   PROVISION_DB_HOST: z.string().default('127.0.0.1'),
