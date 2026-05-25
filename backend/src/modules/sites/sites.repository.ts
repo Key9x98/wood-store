@@ -37,6 +37,7 @@ export interface ISiteRepository {
   markFailed(id: number, reason?: string): Promise<Site>;
   setTemplate(id: number, templateId: number): Promise<Site>;
   setPluginSecret(id: number, encryptedSecret: string): Promise<Site>;
+  setAdminPassword(id: number, encryptedPassword: string): Promise<Site>;
 }
 
 export class SiteRepository implements ISiteRepository {
@@ -119,6 +120,10 @@ export class SiteRepository implements ISiteRepository {
 
   setPluginSecret(id: number, encryptedSecret: string) {
     return this.db.site.update({ where: { id }, data: { pluginSecretEnc: encryptedSecret } });
+  }
+
+  setAdminPassword(id: number, encryptedPassword: string) {
+    return this.db.site.update({ where: { id }, data: { adminPasswordEnc: encryptedPassword } });
   }
 }
 

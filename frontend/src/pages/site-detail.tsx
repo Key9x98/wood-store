@@ -88,7 +88,7 @@ export function SiteDetailPage() {
 
   const productsQ = useQuery({
     queryKey: ['products', siteId],
-    queryFn: () => listProducts(siteId, { limit: 200 }),
+    queryFn: () => listProducts(siteId, { limit: 100 }),
     enabled: Number.isInteger(siteId) && siteId > 0,
     // While anything is mid-sync, poll so the status badges settle on their own.
     refetchInterval: (query) => {
@@ -463,12 +463,23 @@ function ProductFormDialog({
               <Input placeholder="tu-tho, do-tho" {...form.register('categoriesCsv')} />
             </Field>
           </div>
-          <Field label="Ảnh (mỗi URL một dòng)" error={err.imagesText?.message}>
+          <Field
+            label="Ảnh / Video / YouTube (mỗi URL một dòng)"
+            error={err.imagesText?.message}
+          >
             <Textarea
-              rows={2}
-              placeholder="https://cdn/.../1.jpg&#10;https://cdn/.../2.jpg"
+              rows={4}
+              placeholder={
+                'https://cdn/.../anh.jpg\n' +
+                'https://cdn/.../video.mp4\n' +
+                'https://youtu.be/dQw4w9WgXcQ'
+              }
               {...form.register('imagesText')}
             />
+            <p className="mt-1 text-xs text-muted-foreground">
+              Hỗ trợ ảnh JPG/PNG/WebP, video MP4/WebM/MOV, hoặc link YouTube
+              (watch/youtu.be/shorts). Ảnh đầu tiên dùng làm thumbnail sản phẩm.
+            </p>
           </Field>
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" className="h-4 w-4" {...form.register('featured')} />

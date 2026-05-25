@@ -43,4 +43,47 @@ export class WpCliService {
     const { cmd, argv } = this.wpCommand(siteRoot, ['option', 'update', key, value]);
     await this.opts.runShell(cmd, argv);
   }
+
+  /**
+   * Trả `true` nếu site đã chạy `wp core install` xong (wp_options đã có dữ
+   * liệu). `wp core is-installed` exit code 0 nghĩa installed; non-zero nghĩa
+   * chưa (runShell throws) — bắt qua try/catch.
+   */
+  async isCoreInstalled(siteRoot: string): Promise<boolean> {
+    const { cmd, argv } = this.wpCommand(siteRoot, ['core', 'is-installed']);
+    try {
+      await this.opts.runShell(cmd, argv);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Chạy `wp core install` để populate wp_options / wp_users / wp_usermeta etc.
+   * Caller phải đảm bảo step F (wp-config.php) đã chạy + DB credentials hợp lệ.
+   * `--skip-email` ngăn WP gửi mail welcome ra admin_email.
+   */
+  async coreInstall(
+    siteRoot: string,
+    opts: {
+      url: string;
+      title: string;
+      adminUser: string;
+      adminPassword: string;
+      adminEmail: string;
+    },
+  ): Promise<void> {
+    const { cmd, argv } = this.wpCommand(siteRoot, [
+      'core',
+      'install',
+      `--url=${opts.url}`,
+      `--title=${opts.title}`,
+      `--admin_user=${opts.adminUser}`,
+      `--admin_password=${opts.adminPassword}`,
+      `--admin_email=${opts.adminEmail}`,
+      '--skip-email',
+    ]);
+    await this.opts.runShell(cmd, argv);
+  }
 }

@@ -66,6 +66,32 @@ interface RunContext {
   log: ProvisionLogger;
 }
 
+/**
+ * .htaccess WordPress chuẩn — bật mod_rewrite cho site mới.
+ *
+ * Phải có file này (cùng `AllowOverride All` ở vhost — đã đảm bảo trong step H)
+ * để clean URLs `/san-pham/...`, `/tin-tuc/...` hoạt động thay vì `/index.php/...`.
+ * Apache route mọi request không match file/dir → /index.php → WP xử lý.
+ */
+const WP_HTACCESS_TEMPLATE = `# BEGIN WordPress
+<IfModule mod_rewrite.c>
+RewriteEngine On
+RewriteBase /
+RewriteRule ^index\\.php$ - [L]
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule . /index.php [L]
+</IfModule>
+# END WordPress
+`;
+
+/** Permalink structure mặc định: date-based, không có /index.php prefix. */
+const WP_PERMALINK_STRUCTURE = '/%year%/%monthnum%/%day%/%postname%/';
+
+/** Sinh admin password ngẫu nhiên, 16 ký tự base64url an toàn cho shell. */
+const generateAdminPassword = (): string =>
+  randomBytes(12).toString('base64url').slice(0, 16);
+
 export class ProvisionOrchestrator {
   private readonly pluginSlug: string;
 
@@ -187,6 +213,40 @@ export class ProvisionOrchestrator {
       });
       track(completed, 'F');
 
+      // ─── N. WP core install ──────────────────────────────────────────
+      // Step F mới chỉ tạo wp-config; DB của site vẫn empty. Nếu không chạy
+      // `wp core install` ở đây, mọi wp-cli call ở G (theme/plugin activate)
+      // đều fail "site not installed". Idempotent qua 2 lớp:
+      //   - runStep skip khi state.N.done = true.
+      //   - Trong block: `wp core is-installed` quyết định có chạy install hay
+      //     không — phục vụ trường hợp WP đã cài thủ công trước khi step này
+      //     tồn tại.
+      // Admin password sinh ngẫu nhiên + lưu encrypted vào sites.admin_password_enc.
+      // Trên retry, reuse password cũ (nếu có) để tránh xoay credentials.
+      await this.runStep(ctx, 'N', async () => {
+        // Chown trước install — wp-cli cần đọc/ghi wp-config + wp-content.
+        await this.deps.sourceService.chownToWebUser(srcArt.siteRoot);
+        if (await this.deps.wpCliService.isCoreInstalled(srcArt.siteRoot)) {
+          return undefined;
+        }
+        const cur = await this.deps.sitesRepo.findById(siteId);
+        const adminPwd = cur?.adminPasswordEnc
+          ? decrypt(cur.adminPasswordEnc)
+          : generateAdminPassword();
+        if (!cur?.adminPasswordEnc) {
+          await this.deps.sitesRepo.setAdminPassword(siteId, encrypt(adminPwd));
+        }
+        await this.deps.wpCliService.coreInstall(srcArt.siteRoot, {
+          url: `${this.deps.skipSsl ? 'http' : 'https'}://${domain}`,
+          title: domain,
+          adminUser: 'admin',
+          adminPassword: adminPwd,
+          adminEmail: `admin@${domain}`,
+        });
+        return undefined;
+      });
+      track(completed, 'N');
+
       // ─── G. WP-CLI activate ──────────────────────────────────────────
       await this.runStep(ctx, 'G', async () => {
         // All site files exist now (core + wp-config) — hand ownership to the
@@ -215,6 +275,27 @@ export class ProvisionOrchestrator {
         return undefined;
       });
       track(completed, 'L');
+
+      // ─── M. Clean URLs — .htaccess + permalink ────────────────────────
+      // Drop .htaccess WordPress chuẩn vào siteRoot, set permalink_structure
+      // bỏ /index.php prefix, flush rewrite. Step H sau đó deploy vhost với
+      // `AllowOverride All` (đã bake sẵn) → Apache đọc .htaccess + serve clean
+      // URLs ngay khi smoke test J chạy. Tất cả 4 thao tác đều idempotent.
+      await this.runStep(ctx, 'M', async () => {
+        const htPath = path.join(srcArt.siteRoot, '.htaccess');
+        await fs.writeFile(htPath, WP_HTACCESS_TEMPLATE, 'utf-8');
+        // Re-chown gồm cả .htaccess vừa tạo (chownToWebUser idempotent + nhanh
+        // vì đã chown ở step F, lần này chỉ ghi metadata 1 file mới).
+        await this.deps.sourceService.chownToWebUser(srcArt.siteRoot);
+        await this.deps.wpCliService.setOption(
+          srcArt.siteRoot,
+          'permalink_structure',
+          WP_PERMALINK_STRUCTURE,
+        );
+        await this.deps.wpCliService.flushRewrite(srcArt.siteRoot);
+        return undefined;
+      });
+      track(completed, 'M');
 
       // ─── H. Nginx ─────────────────────────────────────────────────────
       const nginxArt = await this.runStep(ctx, 'H', async () => {

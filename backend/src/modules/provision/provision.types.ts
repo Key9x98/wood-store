@@ -1,4 +1,4 @@
-export const STEP_KEYS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'L', 'H', 'I', 'J', 'K'] as const;
+export const STEP_KEYS = ['A', 'B', 'C', 'D', 'E', 'F', 'N', 'G', 'L', 'M', 'H', 'I', 'J', 'K'] as const;
 export type StepKey = (typeof STEP_KEYS)[number];
 
 export interface StepRecord<T> {
@@ -14,8 +14,10 @@ export interface StepArtefacts {
   D: { dbName: string; dbUser: string };
   E: { imported: boolean };
   F: { configPath: string };
+  N: undefined;
   G: undefined;
   L: undefined;
+  M: undefined;
   H: { configPath: string; enabledPath: string };
   I: { certPath: string; fullchainPath: string; expiresAt: string };
   J: undefined;

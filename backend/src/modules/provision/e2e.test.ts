@@ -34,6 +34,7 @@ class InMemorySitesRepo implements ISiteRepository {
       dbUser: null,
       dbPasswordEnc: null,
       pluginSecretEnc: null,
+      adminPasswordEnc: null,
       provisionState: {} as Prisma.JsonValue,
       provisionedAt: null,
       createdAt: new Date(),
@@ -69,6 +70,9 @@ class InMemorySitesRepo implements ISiteRepository {
   async setTemplate(id: number, templateId: number) { return this.patch(id, { templateId }); }
   async setPluginSecret(id: number, encryptedSecret: string) {
     return this.patch(id, { pluginSecretEnc: encryptedSecret });
+  }
+  async setAdminPassword(id: number, encryptedPassword: string) {
+    return this.patch(id, { adminPasswordEnc: encryptedPassword });
   }
 
   private async patch(id: number, p: Partial<Site>) {
@@ -246,7 +250,9 @@ describe('ProvisionOrchestrator — E2E in sandbox', () => {
     expect(site?.dbPasswordEnc).toBeTruthy();
 
     const state = site?.provisionState as ProvisionState;
-    for (const k of ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'L', 'H', 'I', 'J', 'K'] as StepKey[]) {
+    for (const k of [
+      'A', 'B', 'C', 'D', 'E', 'F', 'N', 'G', 'L', 'M', 'H', 'I', 'J', 'K',
+    ] as StepKey[]) {
       expect(state.steps[k]?.done).toBe(true);
     }
 
@@ -255,6 +261,18 @@ describe('ProvisionOrchestrator — E2E in sandbox', () => {
     expect(await fs.readdir(siteFs)).toContain('wp-config.php');
     const wpConf = await fs.readFile(path.join(siteFs, 'wp-config.php'), 'utf8');
     expect(wpConf).toContain("define('DB_NAME',     'wp_a_example_com')");
+
+    // Step M side-effects: .htaccess dropped + permalink set via wp-cli.
+    const htContent = await fs.readFile(path.join(siteFs, '.htaccess'), 'utf8');
+    expect(htContent).toContain('RewriteEngine On');
+    expect(htContent).toContain('RewriteRule . /index.php [L]');
+    const wpCliInvocations = h.shellSpyWp.mock.calls.map((c) => (c[1] as string[]).join(' '));
+    expect(
+      wpCliInvocations.some((s) =>
+        s.includes('option update permalink_structure /%year%/%monthnum%/%day%/%postname%/'),
+      ),
+    ).toBe(true);
+    expect(wpCliInvocations.some((s) => s.includes('rewrite flush'))).toBe(true);
 
     // DNS record persisted
     expect(h.dnsProvider.list('example.com')).toHaveLength(1);
@@ -265,6 +283,46 @@ describe('ProvisionOrchestrator — E2E in sandbox', () => {
 
     // rollback not enqueued
     expect(h.rollbackEnqueueSpy).not.toHaveBeenCalled();
+  });
+
+  it('step N runs wp core install + stores admin password when DB is fresh', async () => {
+    const h = buildHarness();
+    // Mock: first `wp core is-installed` exit non-zero (fresh DB) → throw.
+    // Subsequent calls (re-check, theme/plugin activate, permalink set, etc.)
+    // resolve. Trigger 1 throw chỉ cho lần invoke đầu tiên.
+    let isInstalledCalls = 0;
+    h.shellSpyWp.mockImplementation(async (_cmd: string, args: string[]) => {
+      if (args.includes('is-installed')) {
+        isInstalledCalls += 1;
+        if (isInstalledCalls === 1) {
+          throw new Error('Error: The site you have requested is not installed.');
+        }
+      }
+      return { stdout: '', stderr: '' };
+    });
+
+    const { siteId } = await seedSiteAndTemplate(h, 'fresh.example.com');
+    await h.orchestrator.run(siteId);
+
+    const site = await h.sites.findById(siteId);
+    expect(site?.status).toBe('active');
+    expect(site?.adminPasswordEnc).toBeTruthy();
+
+    // Verify `wp core install` was invoked with proper args.
+    const installCall = h.shellSpyWp.mock.calls.find((c) =>
+      (c[1] as string[]).includes('install') && (c[1] as string[]).includes('core'),
+    );
+    expect(installCall).toBeDefined();
+    const installArgs = installCall![1] as string[];
+    // Harness mặc định skipSsl=undefined → orchestrator dùng https.
+    expect(installArgs).toContain('--url=https://fresh.example.com');
+    expect(installArgs).toContain('--title=fresh.example.com');
+    expect(installArgs).toContain('--admin_user=admin');
+    expect(installArgs).toContain('--admin_email=admin@fresh.example.com');
+    expect(installArgs).toContain('--skip-email');
+    // Password arg present + non-empty
+    const pwdArg = installArgs.find((a) => a.startsWith('--admin_password='));
+    expect(pwdArg?.length).toBeGreaterThan('--admin_password='.length + 8);
   });
 
   it('is idempotent — second run does not duplicate DB creates or DNS records', async () => {
@@ -297,7 +355,7 @@ describe('ProvisionOrchestrator — E2E in sandbox', () => {
     expect(h.rollbackEnqueueSpy).toHaveBeenCalledTimes(1);
     const payload = h.rollbackEnqueueSpy.mock.calls[0]?.[0] as { siteId: number; completed: StepKey[] };
     expect(payload.siteId).toBe(siteId);
-    expect(payload.completed).toEqual(['A', 'B', 'C', 'D', 'E', 'F', 'G', 'L']);
+    expect(payload.completed).toEqual(['A', 'B', 'C', 'D', 'E', 'F', 'N', 'G', 'L', 'M']);
   });
 
   it('rollback compensates DNS + DB + folder in reverse', async () => {

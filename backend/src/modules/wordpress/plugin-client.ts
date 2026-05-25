@@ -49,6 +49,12 @@ export interface ProductUpsertPayload {
   sale_price?: number;
   featured_image_id?: number;
   gallery_ids: number[];
+  /**
+   * 11-char YouTube video ids to embed alongside images. The plugin
+   * normalises + stores them in `_fb_youtube_ids` post-meta (CSV); the
+   * theme reads that meta and renders an `<iframe>` per id.
+   */
+  youtube_ids?: string[];
   category_slugs: string[];
   meta: Record<string, string | number>;
 }

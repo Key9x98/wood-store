@@ -4,6 +4,7 @@ import { AppError } from '../../lib/errors';
 import { ok, err, type Result } from '../../lib/result';
 import type { ContentSyncJobPayload } from '../../queues/content-sync.queue';
 import type { IPluginClient, PluginClientContext } from '../wordpress/plugin-client';
+import { classifyMediaUrl } from './media-classifier';
 import type { IContentRepository } from './content.repository';
 
 /** Narrow site lookup — needs the domain + encrypted plugin secret. */
@@ -138,11 +139,32 @@ export class ContentSyncService {
   private async syncProduct(client: IPluginClient, product: SiteProduct): Promise<void> {
     await this.deps.content.setProductSyncState(product.id, { syncStatus: 'syncing' });
     try {
-      const imageUrls = Array.isArray(product.images) ? (product.images as string[]) : [];
-      const attachmentIds: number[] = [];
-      for (const url of imageUrls) {
-        attachmentIds.push(await this.ensureMedia(client, product.siteId, url));
+      // The `images` column is a mixed bag: image URLs, mp4 URLs, YouTube
+      // links. Classify each so YouTube goes via meta (no sideload possible)
+      // while image+video files take the existing /media/upload path.
+      const rawUrls = Array.isArray(product.images) ? (product.images as string[]) : [];
+      const imageAttachmentIds: number[] = [];
+      const videoAttachmentIds: number[] = [];
+      const youtubeIds: string[] = [];
+
+      for (const url of rawUrls) {
+        const cls = classifyMediaUrl(url);
+        if (cls.kind === 'youtube') {
+          youtubeIds.push(cls.videoId);
+          continue;
+        }
+        const attachId = await this.ensureMedia(client, product.siteId, url);
+        if (cls.kind === 'image') {
+          imageAttachmentIds.push(attachId);
+        } else {
+          videoAttachmentIds.push(attachId);
+        }
       }
+
+      // Featured must be an image — product cards use post thumbnail. Videos
+      // join the gallery so the theme can still iterate over them.
+      const featuredImageId = imageAttachmentIds[0];
+      const galleryIds = [...imageAttachmentIds.slice(1), ...videoAttachmentIds];
 
       const result = await client.upsertProduct({
         slug: product.slug,
@@ -151,8 +173,9 @@ export class ContentSyncService {
         description: product.description,
         regular_price: product.regularPrice,
         sale_price: product.salePrice ?? undefined,
-        featured_image_id: attachmentIds[0],
-        gallery_ids: attachmentIds.slice(1),
+        featured_image_id: featuredImageId,
+        gallery_ids: galleryIds,
+        youtube_ids: youtubeIds.length ? youtubeIds : undefined,
         category_slugs: Array.isArray(product.categories)
           ? (product.categories as string[])
           : [],

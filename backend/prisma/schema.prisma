@@ -48,6 +48,9 @@ model Site {
   dbUser          String?   @map("db_user")
   dbPasswordEnc   String?   @map("db_password_enc") @db.Text
   pluginSecretEnc String?   @map("plugin_secret_enc") @db.Text
+  // Random per-site WordPress admin password (encrypted). Sinh trong step N.
+  // Hardcoded admin user = "admin", email = "admin@<domain>".
+  adminPasswordEnc String?  @map("admin_password_enc") @db.Text
   provisionState  Json      @default("{}") @map("provision_state")
   provisionedAt   DateTime? @map("provisioned_at")
   createdAt       DateTime  @default(now()) @map("created_at")
