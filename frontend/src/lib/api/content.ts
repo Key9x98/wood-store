@@ -14,7 +14,8 @@ export interface ProductInput {
   description: string;
   shortDescription?: string;
   regularPrice: number;
-  salePrice?: number;
+  // null on PATCH clears an existing discount; undefined leaves it untouched.
+  salePrice?: number | null;
   slug?: string;
   videoUrl?: string;
   featured?: boolean;
@@ -33,6 +34,18 @@ export async function listProducts(
 
 export async function createProduct(siteId: number, input: ProductInput): Promise<SiteProduct> {
   const res = await api.post<ItemResponse<SiteProduct>>(`/sites/${siteId}/products`, input);
+  return res.data.data;
+}
+
+export async function updateProduct(
+  siteId: number,
+  productId: number,
+  input: Partial<ProductInput>,
+): Promise<SiteProduct> {
+  const res = await api.patch<ItemResponse<SiteProduct>>(
+    `/sites/${siteId}/products/${productId}`,
+    input,
+  );
   return res.data.data;
 }
 

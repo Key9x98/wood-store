@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -40,6 +40,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Badge, type BadgeProps } from '@/components/ui/badge';
+import { Pagination } from '@/components/ui/pagination';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 
 const domainRegex = /^(?!-)[a-z0-9-]{1,63}(?<!-)(\.[a-z0-9-]{1,63})+$/;
@@ -67,10 +68,13 @@ export function SitesPage() {
   const qc = useQueryClient();
   const [openCreate, setOpenCreate] = useState(false);
   const [deleting, setDeleting] = useState<Site | null>(null);
+  const [offset, setOffset] = useState(0);
+  const [limit, setLimit] = useState(20);
 
   const { data, isLoading } = useQuery({
-    queryKey: ['sites', 'list'],
-    queryFn: () => listSites({ limit: 100 }),
+    queryKey: ['sites', 'list', limit, offset],
+    queryFn: () => listSites({ limit, offset }),
+    placeholderData: keepPreviousData,
   });
 
   const templatesQ = useQuery({
@@ -82,6 +86,8 @@ export function SitesPage() {
     mutationFn: (input: CreateSiteInput) => createSite(input),
     onSuccess: () => {
       toast.success('Đã tạo site');
+      // Newest site lands on page 1 (orderBy id desc).
+      setOffset(0);
       qc.invalidateQueries({ queryKey: ['sites'] });
       setOpenCreate(false);
     },
@@ -92,12 +98,18 @@ export function SitesPage() {
     mutationFn: (id: number) => deleteSite(id),
     onSuccess: () => {
       toast.success('Đã xóa site');
+      // If we just emptied the current page, step back one.
+      const remainingOnPage = (data?.data.length ?? 0) - 1;
+      if (remainingOnPage <= 0 && offset > 0) {
+        setOffset(Math.max(0, offset - limit));
+      }
       qc.invalidateQueries({ queryKey: ['sites'] });
     },
     onError: (err) => toast.error(apiErrorMessage(err)),
   });
 
   const templates = templatesQ.data?.data ?? [];
+  const total = data?.total ?? 0;
 
   return (
     <div className="space-y-6">
@@ -123,7 +135,8 @@ export function SitesPage() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-16">ID</TableHead>
+              <TableHead className="w-12">STT</TableHead>
+              <TableHead className="w-16 text-muted-foreground">ID</TableHead>
               <TableHead>Domain</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Template</TableHead>
@@ -135,21 +148,22 @@ export function SitesPage() {
           <TableBody>
             {isLoading && (
               <TableRow>
-                <TableCell colSpan={7}>
+                <TableCell colSpan={8}>
                   <Skeleton className="h-6 w-full" />
                 </TableCell>
               </TableRow>
             )}
             {!isLoading && data?.data.length === 0 && (
               <TableRow>
-                <TableCell colSpan={7} className="text-center text-muted-foreground">
+                <TableCell colSpan={8} className="text-center text-muted-foreground">
                   Chưa có site nào
                 </TableCell>
               </TableRow>
             )}
-            {data?.data.map((s) => (
+            {data?.data.map((s, i) => (
               <TableRow key={s.id}>
-                <TableCell className="font-mono">{s.id}</TableCell>
+                <TableCell className="text-muted-foreground">{offset + i + 1}</TableCell>
+                <TableCell className="font-mono text-xs text-muted-foreground">#{s.id}</TableCell>
                 <TableCell className="font-medium">
                   <Link to={`/sites/${s.id}`} className="text-primary hover:underline">
                     {s.domain}
@@ -172,6 +186,16 @@ export function SitesPage() {
             ))}
           </TableBody>
         </Table>
+        <Pagination
+          offset={offset}
+          limit={limit}
+          total={total}
+          onOffsetChange={setOffset}
+          onLimitChange={(l) => {
+            setLimit(l);
+            setOffset(0);
+          }}
+        />
       </Card>
 
       <CreateSiteDialog

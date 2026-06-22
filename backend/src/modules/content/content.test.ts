@@ -183,4 +183,32 @@ describe('ContentService.updateProduct', () => {
     expect(repo.updateProduct).toHaveBeenCalledWith(1, expect.objectContaining({ salePercent: 50 }));
     expect(queue.enqueue).toHaveBeenCalledWith({ siteId: 1, op: 'upsert', productId: 1 });
   });
+
+  it('clears the sale price when salePrice is null', async () => {
+    const repo = buildRepo();
+    const queue = buildQueue();
+    const svc = new ContentService(repo, buildSites(), queue);
+
+    const r = await svc.updateProduct(1, 1, { salePrice: null }, owner);
+
+    expect(r.ok).toBe(true);
+    expect(repo.updateProduct).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({ salePrice: null, salePercent: 0 }),
+    );
+  });
+
+  it('persists explicit empty arrays so the UI can clear categories/images', async () => {
+    const repo = buildRepo();
+    const queue = buildQueue();
+    const svc = new ContentService(repo, buildSites(), queue);
+
+    const r = await svc.updateProduct(1, 1, { categories: [], images: [], featured: false }, owner);
+
+    expect(r.ok).toBe(true);
+    expect(repo.updateProduct).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({ categories: [], images: [], featured: false }),
+    );
+  });
 });

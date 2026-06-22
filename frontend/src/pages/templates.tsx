@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -37,6 +37,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Badge, type BadgeProps } from '@/components/ui/badge';
+import { Pagination } from '@/components/ui/pagination';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 
 const importSchema = z.object({
@@ -61,16 +62,21 @@ export function TemplatesPage() {
   const qc = useQueryClient();
   const [openImport, setOpenImport] = useState(false);
   const [deleting, setDeleting] = useState<Template | null>(null);
+  const [offset, setOffset] = useState(0);
+  const [limit, setLimit] = useState(20);
 
   const { data, isLoading } = useQuery({
-    queryKey: ['templates', 'list'],
-    queryFn: () => listTemplates({ limit: 100 }),
+    queryKey: ['templates', 'list', limit, offset],
+    queryFn: () => listTemplates({ limit, offset }),
+    placeholderData: keepPreviousData,
   });
 
   const importMut = useMutation({
     mutationFn: (input: ImportTemplateInput) => importTemplate(input),
     onSuccess: () => {
       toast.success('Đã xếp hàng import — theme đang được đẩy lên codebase');
+      // Newest template lands on page 1 (orderBy id desc).
+      setOffset(0);
       qc.invalidateQueries({ queryKey: ['templates'] });
       setOpenImport(false);
     },
@@ -81,10 +87,16 @@ export function TemplatesPage() {
     mutationFn: (id: number) => deleteTemplate(id),
     onSuccess: () => {
       toast.success('Đã xóa template');
+      const remainingOnPage = (data?.data.length ?? 0) - 1;
+      if (remainingOnPage <= 0 && offset > 0) {
+        setOffset(Math.max(0, offset - limit));
+      }
       qc.invalidateQueries({ queryKey: ['templates'] });
     },
     onError: (err) => toast.error(apiErrorMessage(err)),
   });
+
+  const total = data?.total ?? 0;
 
   return (
     <div className="space-y-6">
@@ -106,7 +118,8 @@ export function TemplatesPage() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-16">ID</TableHead>
+              <TableHead className="w-12">STT</TableHead>
+              <TableHead className="w-16 text-muted-foreground">ID</TableHead>
               <TableHead>Slug</TableHead>
               <TableHead>Tên</TableHead>
               <TableHead>Version</TableHead>
@@ -118,7 +131,7 @@ export function TemplatesPage() {
           <TableBody>
             {isLoading && (
               <TableRow>
-                <TableCell colSpan={isAdmin ? 7 : 6}>
+                <TableCell colSpan={isAdmin ? 8 : 7}>
                   <Skeleton className="h-6 w-full" />
                 </TableCell>
               </TableRow>
@@ -126,16 +139,17 @@ export function TemplatesPage() {
             {!isLoading && data?.data.length === 0 && (
               <TableRow>
                 <TableCell
-                  colSpan={isAdmin ? 7 : 6}
+                  colSpan={isAdmin ? 8 : 7}
                   className="text-center text-muted-foreground"
                 >
                   Chưa có template nào
                 </TableCell>
               </TableRow>
             )}
-            {data?.data.map((t) => (
+            {data?.data.map((t, i) => (
               <TableRow key={t.id}>
-                <TableCell className="font-mono">{t.id}</TableCell>
+                <TableCell className="text-muted-foreground">{offset + i + 1}</TableCell>
+                <TableCell className="font-mono text-xs text-muted-foreground">#{t.id}</TableCell>
                 <TableCell className="font-mono">{t.slug}</TableCell>
                 <TableCell>{t.name}</TableCell>
                 <TableCell className="font-mono text-xs">{t.version}</TableCell>
@@ -156,6 +170,16 @@ export function TemplatesPage() {
             ))}
           </TableBody>
         </Table>
+        <Pagination
+          offset={offset}
+          limit={limit}
+          total={total}
+          onOffsetChange={setOffset}
+          onLimitChange={(l) => {
+            setLimit(l);
+            setOffset(0);
+          }}
+        />
       </Card>
 
       <ImportTemplateDialog

@@ -116,7 +116,10 @@ export class ContentService {
     if (!access.ok) return access;
 
     const regularPrice = input.regularPrice ?? product.regularPrice;
-    const salePrice = input.salePrice ?? product.salePrice;
+    // Distinguish `undefined` (keep current) from `null` (clear discount); `??`
+    // would collapse both, leaving sale_percent stale when the UI clears sale.
+    const salePrice =
+      input.salePrice !== undefined ? input.salePrice : product.salePrice;
 
     const patch: ProductUpdateData = { salePercent: computeSalePercent(regularPrice, salePrice) };
     if (input.name !== undefined) patch.name = input.name;

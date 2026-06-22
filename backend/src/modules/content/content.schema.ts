@@ -39,7 +39,7 @@ const ProductBase = z.object({
 
 const salePriceBelowRegular = (p: {
   regularPrice?: number;
-  salePrice?: number;
+  salePrice?: number | null;
 }): boolean => p.salePrice == null || p.regularPrice == null || p.salePrice < p.regularPrice;
 
 export const CreateProductSchema = ProductBase.partial({
@@ -57,10 +57,14 @@ export const CreateProductSchema = ProductBase.partial({
 });
 export type CreateProductInput = z.infer<typeof CreateProductSchema>;
 
-export const UpdateProductSchema = ProductBase.partial().refine(salePriceBelowRegular, {
-  message: 'content.sale_price_gte_regular',
-  path: ['salePrice'],
-});
+// Update path additionally accepts `salePrice: null` to clear an existing
+// discount — there is no other way for the UI to remove a sale price.
+export const UpdateProductSchema = ProductBase.partial()
+  .extend({ salePrice: z.number().int().positive().nullable().optional() })
+  .refine(salePriceBelowRegular, {
+    message: 'content.sale_price_gte_regular',
+    path: ['salePrice'],
+  });
 export type UpdateProductInput = z.infer<typeof UpdateProductSchema>;
 
 export const BulkImportSchema = z.object({

@@ -1,11 +1,11 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { ArrowLeft, Loader2, Palette, Plus, RefreshCw, Trash2, Upload } from 'lucide-react';
+import { ArrowLeft, Loader2, Palette, Pencil, Plus, RefreshCw, Trash2, Upload } from 'lucide-react';
 import { format } from 'date-fns';
 import { getSite } from '@/lib/api/sites';
 import {
@@ -14,6 +14,7 @@ import {
   deleteProduct,
   listProducts,
   resyncSite,
+  updateProduct,
   type ProductInput,
 } from '@/lib/api/content';
 import { switchTemplate } from '@/lib/api/deploy';
@@ -50,6 +51,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Badge, type BadgeProps } from '@/components/ui/badge';
+import { Pagination } from '@/components/ui/pagination';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 
 const vnd = (n: number): string => `${n.toLocaleString('vi-VN')} ₫`;
@@ -78,7 +80,10 @@ export function SiteDetailPage() {
   const [openCreate, setOpenCreate] = useState(false);
   const [openBulk, setOpenBulk] = useState(false);
   const [openSwitch, setOpenSwitch] = useState(false);
+  const [editing, setEditing] = useState<SiteProduct | null>(null);
   const [deleting, setDeleting] = useState<SiteProduct | null>(null);
+  const [offset, setOffset] = useState(0);
+  const [limit, setLimit] = useState(20);
 
   const siteQ = useQuery({
     queryKey: ['site', siteId],
@@ -87,9 +92,12 @@ export function SiteDetailPage() {
   });
 
   const productsQ = useQuery({
-    queryKey: ['products', siteId],
-    queryFn: () => listProducts(siteId, { limit: 100 }),
+    queryKey: ['products', siteId, limit, offset],
+    queryFn: () => listProducts(siteId, { limit, offset }),
     enabled: Number.isInteger(siteId) && siteId > 0,
+    // Keep the previous page visible while the next page loads — avoids a
+    // flash of empty state when paginating.
+    placeholderData: keepPreviousData,
     // While anything is mid-sync, poll so the status badges settle on their own.
     refetchInterval: (query) => {
       const items = query.state.data?.data ?? [];
@@ -110,6 +118,9 @@ export function SiteDetailPage() {
     mutationFn: (input: ProductInput) => createProduct(siteId, input),
     onSuccess: () => {
       toast.success('Đã thêm sản phẩm — đang đồng bộ xuống site');
+      // Newest product sits at the top (orderBy id desc) — make sure user
+      // lands on the page that actually shows it.
+      setOffset(0);
       invalidateProducts();
       setOpenCreate(false);
     },
@@ -120,8 +131,20 @@ export function SiteDetailPage() {
     mutationFn: (products: ProductInput[]) => bulkImportProducts(siteId, products),
     onSuccess: (r) => {
       toast.success(`Import xong: +${r.created} mới, ${r.updated} cập nhật`);
+      setOffset(0);
       invalidateProducts();
       setOpenBulk(false);
+    },
+    onError: (err) => toast.error(apiErrorMessage(err)),
+  });
+
+  const updateMut = useMutation({
+    mutationFn: ({ productId, input }: { productId: number; input: ProductInput }) =>
+      updateProduct(siteId, productId, input),
+    onSuccess: () => {
+      toast.success('Đã cập nhật sản phẩm — đang đồng bộ xuống site');
+      invalidateProducts();
+      setEditing(null);
     },
     onError: (err) => toast.error(apiErrorMessage(err)),
   });
@@ -130,6 +153,12 @@ export function SiteDetailPage() {
     mutationFn: (productId: number) => deleteProduct(siteId, productId),
     onSuccess: () => {
       toast.success('Đã xoá sản phẩm');
+      // If we just deleted the only item on a non-first page, step back so the
+      // user doesn't land on an empty page after the refetch.
+      const remainingOnPage = (productsQ.data?.data.length ?? 0) - 1;
+      if (remainingOnPage <= 0 && offset > 0) {
+        setOffset(Math.max(0, offset - limit));
+      }
       invalidateProducts();
     },
     onError: (err) => toast.error(apiErrorMessage(err)),
@@ -160,6 +189,7 @@ export function SiteDetailPage() {
 
   const site = siteQ.data;
   const products = productsQ.data?.data ?? [];
+  const productsTotal = productsQ.data?.total ?? 0;
   const templates = templatesQ.data?.data ?? [];
   const currentTemplate = templates.find((t) => t.id === site?.templateId);
 
@@ -230,33 +260,35 @@ export function SiteDetailPage() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-16">ID</TableHead>
+              <TableHead className="w-12">STT</TableHead>
+              <TableHead className="w-16 text-muted-foreground">ID</TableHead>
               <TableHead>Slug</TableHead>
               <TableHead>Tên</TableHead>
               <TableHead>Giá</TableHead>
               <TableHead>Đồng bộ</TableHead>
               <TableHead>WP Post</TableHead>
-              <TableHead className="w-20 text-right">Thao tác</TableHead>
+              <TableHead className="w-28 text-right">Thao tác</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {productsQ.isLoading && (
               <TableRow>
-                <TableCell colSpan={7}>
+                <TableCell colSpan={8}>
                   <Skeleton className="h-6 w-full" />
                 </TableCell>
               </TableRow>
             )}
             {!productsQ.isLoading && products.length === 0 && (
               <TableRow>
-                <TableCell colSpan={7} className="text-center text-muted-foreground">
+                <TableCell colSpan={8} className="text-center text-muted-foreground">
                   Chưa có sản phẩm — bấm “Thêm sản phẩm” hoặc “Import hàng loạt”.
                 </TableCell>
               </TableRow>
             )}
-            {products.map((p) => (
+            {products.map((p, i) => (
               <TableRow key={p.id}>
-                <TableCell className="font-mono">{p.id}</TableCell>
+                <TableCell className="text-muted-foreground">{offset + i + 1}</TableCell>
+                <TableCell className="font-mono text-xs text-muted-foreground">#{p.id}</TableCell>
                 <TableCell className="font-mono text-xs">{p.slug}</TableCell>
                 <TableCell className="font-medium">
                   {p.name}
@@ -291,7 +323,20 @@ export function SiteDetailPage() {
                   {p.wpPostId ? `#${p.wpPostId}` : '—'}
                 </TableCell>
                 <TableCell className="text-right">
-                  <Button variant="ghost" size="icon" onClick={() => setDeleting(p)}>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setEditing(p)}
+                    title="Sửa sản phẩm"
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setDeleting(p)}
+                    title="Xoá sản phẩm"
+                  >
                     <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
                 </TableCell>
@@ -299,6 +344,16 @@ export function SiteDetailPage() {
             ))}
           </TableBody>
         </Table>
+        <Pagination
+          offset={offset}
+          limit={limit}
+          total={productsTotal}
+          onOffsetChange={setOffset}
+          onLimitChange={(l) => {
+            setLimit(l);
+            setOffset(0);
+          }}
+        />
       </Card>
 
       <ProductFormDialog
@@ -306,6 +361,14 @@ export function SiteDetailPage() {
         onOpenChange={setOpenCreate}
         onSubmit={(v) => createMut.mutate(v)}
         submitting={createMut.isPending}
+      />
+
+      <ProductFormDialog
+        open={!!editing}
+        onOpenChange={(o) => !o && setEditing(null)}
+        initial={editing ?? undefined}
+        onSubmit={(v) => editing && updateMut.mutate({ productId: editing.id, input: v })}
+        submitting={updateMut.isPending}
       />
 
       <BulkImportDialog
@@ -368,7 +431,10 @@ const productSchema = z
   });
 type ProductForm = z.infer<typeof productSchema>;
 
-function formToInput(v: ProductForm): ProductInput {
+function formToInput(
+  v: ProductForm,
+  opts: { edit: boolean; initial?: SiteProduct } = { edit: false },
+): ProductInput {
   const categories = (v.categoriesCsv ?? '')
     .split(',')
     .map((s) => s.trim())
@@ -377,8 +443,30 @@ function formToInput(v: ProductForm): ProductInput {
     .split(/[\n,]+/)
     .map((s) => s.trim())
     .filter(Boolean);
-  const attributes: Record<string, unknown> = {};
-  if (v.wood?.trim()) attributes.wood = v.wood.trim();
+  const wood = v.wood?.trim();
+
+  // Preserve attribute keys the form doesn't expose (dimensions, weightKg, …).
+  // PATCH replaces the whole attributes object, so we must merge here.
+  const attributes: Record<string, unknown> = { ...(opts.initial?.attributes ?? {}) };
+  if (wood) attributes.wood = wood;
+  else delete attributes.wood;
+
+  if (opts.edit) {
+    // PATCH semantics: undefined = keep current; we send explicit values so the
+    // user can actually clear featured / categories / images / sale price.
+    return {
+      name: v.name.trim(),
+      description: v.description,
+      shortDescription: v.shortDescription?.trim() || undefined,
+      regularPrice: Number(v.regularPrice),
+      salePrice: v.salePrice ? Number(v.salePrice) : null,
+      featured: v.featured,
+      categories,
+      images,
+      attributes,
+    };
+  }
+
   return {
     name: v.name.trim(),
     description: v.description,
@@ -392,50 +480,82 @@ function formToInput(v: ProductForm): ProductInput {
   };
 }
 
+const EMPTY_FORM: ProductForm = {
+  name: '',
+  shortDescription: '',
+  description: '',
+  regularPrice: '',
+  salePrice: '',
+  wood: '',
+  categoriesCsv: '',
+  imagesText: '',
+  featured: false,
+};
+
+function productToForm(p: SiteProduct): ProductForm {
+  const wood = typeof p.attributes?.wood === 'string' ? (p.attributes.wood as string) : '';
+  const mediaLines = [...(p.images ?? [])];
+  if (p.videoUrl && !mediaLines.includes(p.videoUrl)) mediaLines.push(p.videoUrl);
+  return {
+    name: p.name,
+    shortDescription: p.shortDescription ?? '',
+    description: p.description,
+    regularPrice: String(p.regularPrice),
+    salePrice: p.salePrice != null ? String(p.salePrice) : '',
+    wood,
+    categoriesCsv: (p.categories ?? []).join(', '),
+    imagesText: mediaLines.join('\n'),
+    featured: p.featured,
+  };
+}
+
 function ProductFormDialog({
   open,
   onOpenChange,
   onSubmit,
   submitting,
+  initial,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   onSubmit: (v: ProductInput) => void;
   submitting: boolean;
+  initial?: SiteProduct;
 }) {
+  const isEdit = !!initial;
   const form = useForm<ProductForm>({
     resolver: zodResolver(productSchema),
-    defaultValues: {
-      name: '',
-      shortDescription: '',
-      description: '',
-      regularPrice: '',
-      salePrice: '',
-      wood: '',
-      categoriesCsv: '',
-      imagesText: '',
-      featured: false,
-    },
+    defaultValues: EMPTY_FORM,
   });
   const err = form.formState.errors;
+
+  // Re-seed the form whenever the dialog re-opens against a different product
+  // (or when transitioning between create / edit modes).
+  useEffect(() => {
+    if (open) form.reset(initial ? productToForm(initial) : EMPTY_FORM);
+  }, [open, initial, form]);
 
   return (
     <Dialog
       open={open}
       onOpenChange={(o) => {
-        if (!o) form.reset();
+        if (!o) form.reset(EMPTY_FORM);
         onOpenChange(o);
       }}
     >
       <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Thêm sản phẩm</DialogTitle>
+          <DialogTitle>{isEdit ? 'Sửa sản phẩm' : 'Thêm sản phẩm'}</DialogTitle>
           <DialogDescription>
-            Lưu vào CMS rồi tự động đồng bộ xuống WordPress. Slug sinh tự động từ tên.
+            {isEdit
+              ? 'Cập nhật thông tin sản phẩm. Sau khi lưu sẽ tự đồng bộ xuống WordPress.'
+              : 'Lưu vào CMS rồi tự động đồng bộ xuống WordPress. Slug sinh tự động từ tên.'}
           </DialogDescription>
         </DialogHeader>
         <form
-          onSubmit={form.handleSubmit((v) => onSubmit(formToInput(v)))}
+          onSubmit={form.handleSubmit((v) =>
+            onSubmit(formToInput(v, { edit: isEdit, initial })),
+          )}
           className="space-y-4"
         >
           <Field label="Tên sản phẩm" error={err.name?.message}>
@@ -491,7 +611,7 @@ function ProductFormDialog({
             </Button>
             <Button type="submit" disabled={submitting}>
               {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
-              Thêm
+              {isEdit ? 'Lưu' : 'Thêm'}
             </Button>
           </DialogFooter>
         </form>
